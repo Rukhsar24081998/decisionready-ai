@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" role="img" aria-label="DecisionReady AI">
+  <defs>
+    <linearGradient id="dr-logo-grad" x1="4" y1="2" x2="28" y2="30" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#16A34A"/>
+      <stop offset="55%" stop-color="#22C55E"/>
+      <stop offset="100%" stop-color="#4ADE80"/>
+    </linearGradient>
+    <clipPath id="dr-logo-clip">
+      <rect width="32" height="32" rx="9"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#dr-logo-clip)">
+    <rect width="32" height="32" fill="url(#dr-logo-grad)"/>
+    <path d="M20 32H24C28.4183 32 32 28.4183 32 24V20L20 32Z" fill="#A3E635"/>
+    <path d="M20 32L32 20L28.5 28.5L20 32Z" fill="#15803D" fill-opacity="0.28"/>
+    <path d="M16 6.2L23.6 12.4V23.6H8.4V12.4L16 6.2Z" fill="#FFFFFF"/>
+  </g>
+</svg>
