@@ -219,21 +219,14 @@ function finalizeResult(
     elapsedMs,
   });
 
-  console.log("Decision Engine complete");
-  console.log(
-    JSON.stringify(
-      {
-        decisionReadiness: result.decisionReadiness,
-        decisionReadinessBreakdown: result.decisionReadinessBreakdown,
-        confidence: result.confidence,
-        evidenceQuality: result.evidenceQuality,
-        coverageBreakdown: result.coverageBreakdown,
-        metadata: result.metadata,
-      },
-      null,
-      2
-    )
-  );
+  console.log("Decision Engine complete", {
+    readiness: result.decisionReadiness?.label,
+    score: result.decisionReadiness?.score,
+    confidence: result.confidence,
+    evidenceQuality: result.evidenceQuality,
+    model: result.metadata?.modelName,
+    elapsedMs,
+  });
 
   return result;
 }

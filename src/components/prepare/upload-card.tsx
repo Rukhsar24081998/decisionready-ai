@@ -27,8 +27,9 @@ export interface UploadCardProps {
   uploadedAt?: number | null;
 }
 
-const DEFAULT_ACCEPT = ".pdf,.doc,.docx,.txt,.md";
+const DEFAULT_ACCEPT = ".pdf,.docx,.txt,.md";
 const DEFAULT_MAX_SIZE = "10 MB";
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 function formatUploadedAt(uploadedAt?: number | null): string {
   if (!uploadedAt) return "Just now";
@@ -65,6 +66,7 @@ export function UploadCard({
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [justUploaded, setJustUploaded] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
   const compact = variant === "compact";
   const success = Boolean(file);
   const sizeLabel = formatLabel(maxSizeLabel);
@@ -81,7 +83,24 @@ export function UploadCard({
 
   const assignFile = useCallback(
     (next: File | null) => {
+      setLocalError(null);
       if (next) {
+        const extension = next.name.split(".").pop()?.toLowerCase() ?? "";
+        const allowed = ["pdf", "docx", "txt", "md", "markdown"];
+        if (!allowed.includes(extension)) {
+          setLocalError(
+            `Unsupported file type. Upload PDF, DOCX, TXT, or MD.`
+          );
+          return;
+        }
+        if (next.size <= 0) {
+          setLocalError("File is empty. Please choose a valid document.");
+          return;
+        }
+        if (next.size > MAX_UPLOAD_BYTES) {
+          setLocalError(`File exceeds the ${sizeLabel} limit.`);
+          return;
+        }
         setLoading(true);
         window.setTimeout(() => {
           onFileChange(next);
@@ -91,7 +110,7 @@ export function UploadCard({
         onFileChange(null);
       }
     },
-    [onFileChange]
+    [onFileChange, sizeLabel]
   );
 
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -364,6 +383,12 @@ export function UploadCard({
           </span>
         </div>
       </div>
+
+      {localError ? (
+        <p className="mt-2 text-[11px] font-medium text-[#B91C1C]" role="alert">
+          {localError}
+        </p>
+      ) : null}
     </article>
   );
 }

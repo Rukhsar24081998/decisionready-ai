@@ -41,6 +41,9 @@ export const localAnalysisStore: AnalysisStoreBackend = {
         path: STORE_PATH,
         error: error instanceof Error ? error.message : String(error),
       });
+      throw error instanceof Error
+        ? error
+        : new Error("Failed to persist analyses to local store.");
     }
   },
 };

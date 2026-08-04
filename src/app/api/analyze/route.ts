@@ -5,6 +5,7 @@ import {
   type PipelineProgressEvent,
 } from "@/lib/ai/pipeline-timing";
 import { ingestUploadedFile } from "@/lib/ingestion/ingest-file";
+import { validateUploadFile } from "@/lib/ingestion/upload-constraints";
 import {
   DOCUMENT_TYPE_BY_FIELD,
   type DocumentType,
@@ -30,7 +31,18 @@ function logStage(
   console.info("[api/analyze]", { stage, ...details });
 }
 
-function serializeError(error: unknown): Record<string, unknown> {
+/** Safe client-facing error payload — never include stacks or internals. */
+function publicErrorDetails(error: unknown): Record<string, unknown> {
+  if (error instanceof AiProviderError) {
+    return { code: error.code };
+  }
+  if (error instanceof Error) {
+    return { name: error.name };
+  }
+  return {};
+}
+
+function serializeErrorForLogs(error: unknown): Record<string, unknown> {
   if (error instanceof AiProviderError) {
     return {
       name: error.name,
@@ -163,6 +175,28 @@ export async function POST(request: Request) {
               return;
             }
             continue;
+          }
+
+          const validation = validateUploadFile({
+            filename: value.name,
+            size: value.size,
+          });
+          if (!validation.ok) {
+            logStage("validation_failed_upload_constraints", {
+              requestId,
+              field,
+              filename: value.name,
+              size: value.size,
+            });
+            send({
+              type: "error",
+              error: validation.error,
+              code: "VALIDATION",
+              stage: "request_validation",
+              requestId,
+            });
+            controller.close();
+            return;
           }
 
           const documentType = DOCUMENT_TYPE_BY_FIELD[
@@ -315,7 +349,7 @@ export async function POST(request: Request) {
           },
         });
       } catch (error) {
-        const serialized = serializeError(error);
+        const serialized = serializeErrorForLogs(error);
         console.error("[api/analyze] stage=unhandled_error", {
           requestId,
           ...serialized,
@@ -332,7 +366,7 @@ export async function POST(request: Request) {
           code: error instanceof AiProviderError ? error.code : "UNKNOWN",
           stage: "unhandled_error",
           requestId,
-          details: serialized,
+          details: publicErrorDetails(error),
         });
       } finally {
         controller.close();

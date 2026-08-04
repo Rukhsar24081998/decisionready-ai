@@ -256,8 +256,9 @@ export async function askRecruiterCopilot(
     );
   }
 
-  console.log("Raw Copilot response:");
-  console.log(rawText);
+  console.info("[copilot] stage=response_received", {
+    chars: rawText.length,
+  });
 
   let validated: CopilotResponse;
   try {
@@ -275,8 +276,9 @@ CRITICAL: Return one JSON object only. Required keys: answer, confidence, citati
       systemPrompt,
       stricterUser
     );
-    console.log("Raw Copilot response:");
-    console.log(retryRaw);
+    console.info("[copilot] stage=retry_response_received", {
+      chars: retryRaw.length,
+    });
     try {
       validated = parseCopilotJson(retryRaw);
     } catch {
@@ -289,8 +291,11 @@ CRITICAL: Return one JSON object only. Required keys: answer, confidence, citati
     documents.map((d) => d.documentType)
   );
 
-  console.log("Validated Copilot object:");
-  console.log(JSON.stringify(sanitized, null, 2));
+  console.info("[copilot] stage=response_validated", {
+    citations: sanitized.citations.length,
+    confidence: sanitized.confidence,
+    relatedCompetencies: sanitized.relatedCompetencies.length,
+  });
 
   return sanitized;
 }

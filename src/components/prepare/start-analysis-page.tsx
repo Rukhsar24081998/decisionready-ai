@@ -111,6 +111,7 @@ export function StartAnalysisPage() {
   const [error, setError] = useState<string | null>(null);
   const [highlightCta, setHighlightCta] = useState(false);
   const wasReadyRef = useRef(false);
+  const submittingLockRef = useRef(false);
   const [stageStatus, setStageStatus] = useState<
     Partial<Record<LiveProgressId, "pending" | "in_progress" | "completed">>
   >({});
@@ -166,8 +167,9 @@ export function StartAnalysisPage() {
   };
 
   const generateIntelligence = async () => {
-    if (!requiredReady || submitting) return;
+    if (!requiredReady || submitting || submittingLockRef.current) return;
 
+    submittingLockRef.current = true;
     setSubmitting(true);
     setError(null);
     setStageStatus(
@@ -288,6 +290,7 @@ export function StartAnalysisPage() {
           : "Unable to generate Decision Intelligence right now. Please try again."
       );
       setSubmitting(false);
+      submittingLockRef.current = false;
       setStageStatus({});
     }
   };

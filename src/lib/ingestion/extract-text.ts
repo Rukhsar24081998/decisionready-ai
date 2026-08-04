@@ -46,7 +46,7 @@ export async function extractTextFromBuffer(
     }
   }
 
-  if (extension === "docx" || extension === "doc") {
+  if (extension === "docx") {
     console.info("[ingest] stage=docx_parse_start", { filename });
     const result = await mammoth.extractRawText({ buffer });
     const text = normalizeText(result.value);
