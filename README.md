@@ -16,9 +16,18 @@ Experience the complete Decision Intelligence workflow—from document upload to
 
 ---
 
+## Documentation
+
+- 📄 **[Product Case Study & Engineering Handoff](./CASE_STUDY.md)** → assignment-ready case study
+- 🌐 **[Live Demo](https://decisionready-ai.vercel.app)**
+- 💻 **[GitHub Repository](https://github.com/Rukhsar24081998/decisionready-ai)**
+
+---
+
 ## Table of Contents
 
 - [Live Demo](#live-demo)
+- [Documentation](#documentation)
 - [Overview](#overview)
 - [Current Status](#current-status)
 - [Why I Built DecisionReady AI](#why-i-built-decisionready-ai)
@@ -113,11 +122,12 @@ Decision Brief + Print Report
 | Layer | Technologies |
 |---|---|
 | **Frontend** | Next.js 15 (App Router, Turbopack), React 19, TypeScript, Base UI / shadcn-style components, Recharts, Lucide React |
-| **Backend** | Next.js Route Handlers (`/api/analyses`, `/api/analyze`, `/api/copilot`); local JSON persistence under `.data/` (MVP) |
+| **Backend** | Next.js Route Handlers (`/api/analyses`, `/api/analyze`, `/api/copilot`) |
+| **Persistence** | Local JSON (`.data/`) in development; **Vercel Blob** in production when `BLOB_READ_WRITE_TOKEN` is set |
 | **AI** | Groq via OpenAI-compatible client; document extractors; Evidence Graph; Decision Engine; Zod schemas; citation-aware copilot |
 | **Ingestion** | pdf-parse (PDF), mammoth (DOCX) |
 | **Styling** | Tailwind CSS 4; custom landing / prepare / intelligence tokens |
-| **Deploy** | Standard Next.js target (e.g. Vercel); requires `GROQ_API_KEY` at runtime |
+| **Deploy** | Vercel; requires `GROQ_API_KEY` (and Blob token for durable cross-instance storage) |
 
 ---
 
@@ -145,6 +155,7 @@ Documents (PDF/DOCX)
 | **Decision Engine** | Compute Decision Readiness and evidence gaps deterministically |
 | **Shared Candidate Presentation Model** | Normalize profile fields for dashboard + brief |
 | **Presentation Layer** | Recruiter-facing intelligence UI and printable brief |
+| **Persistence** | Local JSON for development; Vercel Blob for production durability across serverless instances |
 
 Product principle: **Decision Support, not Decision Making.**
 
@@ -154,6 +165,7 @@ Product principle: **Decision Support, not Decision Making.**
 
 ```text
 .
+├── CASE_STUDY.md   # Product Case Study & Engineering Handoff
 ├── docs/           # Product docs, images, supporting documentation
 ├── public/         # Static assets
 ├── scripts/        # Local utilities and helpers
@@ -194,11 +206,19 @@ npm run dev                  # http://localhost:3000
 |---|---|---|
 | `GROQ_API_KEY` | Yes | API key for Groq (Decision Intelligence + copilot) |
 | `GROQ_MODEL` | No | Primary model (defaults per `.env.example`; provider may fall back if unavailable) |
+| `BLOB_READ_WRITE_TOKEN` | Production | Persistent storage for production deployments using Vercel Blob |
 
 ```bash
 GROQ_API_KEY=your_api_key_here
 GROQ_MODEL=openai/gpt-oss-120b
+BLOB_READ_WRITE_TOKEN=vercel_blob_rw_xxxxxxxx
 ```
+
+**Persistence behavior**
+
+- **Development:** uses the local JSON store under `.data/` (fallback when no Blob token is set).
+- **Production:** automatically uses **Vercel Blob** when `BLOB_READ_WRITE_TOKEN` is configured, so analyses persist across serverless instances.
+- Local storage remains the fallback for local development.
 
 Keep secrets in `.env.local` only. `.env*` is gitignored (`.env.example` is committed).
 
@@ -206,21 +226,20 @@ Keep secrets in `.env.local` only. `.env*` is gitignored (`.env.example` is comm
 
 ## Roadmap
 
-- Persistent cloud storage and multi-user auth (replace local `.data/` JSON)
+- Multi-user auth and role-based access
 - ATS connectors (Greenhouse / Lever / Ashby) for document sync
 - Native PDF export (beyond browser print)
 - Shareable report links with access control
 - Deeper conflict resolution workflows for interviewer disagreement
 - Evaluation harness for extractor + readiness regression tests
-- Team workspaces and role-based permissions
+- Team workspaces and permissions
 
 ---
 
 ## Limitations
 
 - **Intentionally avoids automated Hire/Reject recommendations.** DecisionReady AI supports evidence-based hiring discussions rather than replacing human judgment.
-- **Local file-backed storage** (`.data/analyses.json`), not production multi-tenant persistence
-- **No authentication / multi-user isolation** yet
+- **No authentication / multi-user isolation** yet (demo MVP)
 - **LLM extraction quality depends on document clarity** and Groq availability
 - **Share / PDF export** UI actions are partially “Coming soon”; print uses the browser print dialog
 - **Not an ATS replacement** — Decision Intelligence layer only
@@ -233,6 +252,7 @@ Keep secrets in `.env.local` only. `.env*` is gitignored (`.env.example` is comm
 **Rukhsar Khan** — Aspiring Product Manager · AI product builds with LLMs, React, and end-to-end craft
 
 - Live App: [decisionready-ai.vercel.app](https://decisionready-ai.vercel.app)
+- Case Study: [CASE_STUDY.md](./CASE_STUDY.md)
 - Portfolio: [rukhsar-khan-portfolio.vercel.app](https://rukhsar-khan-portfolio.vercel.app)
 - LinkedIn: [rukhsar-khan-1a8382120](https://www.linkedin.com/in/rukhsar-khan-1a8382120/)
 - Email: [rukhsarkhan24081998@gmail.com](mailto:rukhsarkhan24081998@gmail.com)
