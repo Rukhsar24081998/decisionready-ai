@@ -187,14 +187,31 @@ export function StartAnalysisPage() {
         body: form,
       });
 
-      const payload = (await analyzeRes.json()) as {
+      const rawBody = await analyzeRes.text();
+      let payload: {
         data?: { analysisId: string };
         error?: string;
-      };
+        code?: string;
+        stage?: string;
+        requestId?: string;
+      } = {};
+
+      try {
+        payload = rawBody ? (JSON.parse(rawBody) as typeof payload) : {};
+      } catch {
+        throw new Error(
+          `Server returned a non-JSON ${analyzeRes.status} response while generating Decision Intelligence. ` +
+            `Check Vercel Function logs for /api/analyze. ` +
+            `Body preview: ${rawBody.slice(0, 180).replace(/\s+/g, " ")}`
+        );
+      }
 
       if (!analyzeRes.ok || !payload.data?.analysisId) {
         throw new Error(
-          payload.error || "Unable to generate Decision Intelligence"
+          payload.error ||
+            `Unable to generate Decision Intelligence (${analyzeRes.status}${
+              payload.code ? ` · ${payload.code}` : ""
+            }${payload.stage ? ` · ${payload.stage}` : ""})`
         );
       }
 

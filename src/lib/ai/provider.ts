@@ -78,6 +78,11 @@ function getGroqApiKey(): string {
 }
 
 function getGroqClient(): OpenAI {
+  console.info("[ai/provider] stage=ai_client_init", {
+    baseURL: GROQ_BASE_URL,
+    timeoutMs: 120_000,
+    keyConfigured: Boolean(process.env.GROQ_API_KEY?.trim()),
+  });
   return new OpenAI({
     apiKey: getGroqApiKey(),
     baseURL: GROQ_BASE_URL,
@@ -388,6 +393,10 @@ CRITICAL:
   console.log(systemPrompt.length + userPrompt.length);
 
   try {
+    console.info("[ai/provider] stage=model_invocation_start", {
+      model,
+      promptChars: systemPrompt.length + userPrompt.length,
+    });
     const completion = await client.chat.completions.create({
       model,
       temperature: 0.1,
@@ -408,8 +417,16 @@ CRITICAL:
       );
     }
 
+    console.info("[ai/provider] stage=model_invocation_ok", {
+      model,
+      responseChars: content.length,
+    });
     return content;
   } catch (error: unknown) {
+    console.error("[ai/provider] stage=model_invocation_failed", {
+      model,
+      error: error instanceof Error ? error.message : String(error),
+    });
     console.error("========== GROQ NARRATIVE ERROR ==========");
     console.error(error);
     throw error;
@@ -434,13 +451,20 @@ export async function analyzeHiringEvidence(
   }
 
   const started = Date.now();
+  console.info("[ai/provider] stage=analyze_start", {
+    documentCount: input.documents.length,
+    models: getModelCandidates(),
+  });
   const client = getGroqClient();
   const models = getModelCandidates();
 
   // Step 1 — extractors
+  console.info("[ai/provider] stage=extractors_start");
   const extractions = await runDocumentExtractors(input.documents);
+  console.info("[ai/provider] stage=extractors_ok");
 
   // Step 2 — evidence graph
+  console.info("[ai/provider] stage=evidence_graph_start");
   const graph = mergeEvidence({
     resume: extractions.resume,
     jobDescription: extractions.jobDescription,
@@ -448,6 +472,10 @@ export async function analyzeHiringEvidence(
     scorecard: extractions.scorecard,
     hiringManagerNotes: extractions.hiringManagerNotes,
     documentNames: extractions.documentNames,
+  });
+  console.info("[ai/provider] stage=evidence_graph_ok", {
+    competencies: graph.competencies.length,
+    missing: graph.missingCompetencies.length,
   });
 
   // Prefer recruiter-provided context when graph fields are empty
@@ -511,7 +539,12 @@ export async function analyzeHiringEvidence(
 
   if (responseText && selectedModel) {
     try {
+      console.info("[ai/provider] stage=response_parsing_start", {
+        model: selectedModel,
+        chars: responseText.length,
+      });
       summary = parseNarrativeSummary(responseText);
+      console.info("[ai/provider] stage=response_parsing_ok");
     } catch {
       console.warn(
         "[groq] Malformed narrative. Retrying once with a stricter prompt."

@@ -18,14 +18,56 @@ const FILE_FIELDS = [
   { field: "hiringManagerNotes", required: false },
 ] as const;
 
+function logStage(
+  stage: string,
+  details?: Record<string, unknown>
+): void {
+  console.info("[api/analyze]", { stage, ...details });
+}
+
+function serializeError(error: unknown): Record<string, unknown> {
+  if (error instanceof AiProviderError) {
+    return {
+      name: error.name,
+      code: error.code,
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      cause:
+        error.cause instanceof Error
+          ? { name: error.cause.name, message: error.cause.message }
+          : error.cause,
+    };
+  }
+  return { message: String(error) };
+}
+
 /**
  * POST /api/analyze
  * Multipart form: hiring evidence files + candidate context.
  * Pipeline: ingest → extractors → Evidence Graph → narrative LLM → Decision Engine.
  */
 export async function POST(request: Request) {
+  const requestId = crypto.randomUUID().slice(0, 8);
+
   try {
+    logStage("request_received", {
+      requestId,
+      contentType: request.headers.get("content-type"),
+      contentLength: request.headers.get("content-length"),
+      groqKeyConfigured: Boolean(process.env.GROQ_API_KEY?.trim()),
+      groqModel: process.env.GROQ_MODEL?.trim() || "(default fallbacks)",
+    });
+
+    logStage("formdata_parse_start", { requestId });
     const form = await request.formData();
+    logStage("formdata_parse_ok", { requestId });
 
     const candidateName = String(form.get("candidateName") ?? "").trim();
     const roleTitle = String(form.get("roleTitle") ?? "").trim();
@@ -33,14 +75,32 @@ export async function POST(request: Request) {
     const hiringManager = String(form.get("hiringManager") ?? "").trim();
     const hiringStage = String(form.get("hiringStage") ?? "").trim();
 
+    logStage("request_validation", {
+      requestId,
+      candidateName: Boolean(candidateName),
+      roleTitle: Boolean(roleTitle),
+      department: Boolean(department),
+      hiringManager: Boolean(hiringManager),
+      hiringStage: hiringStage || "(empty)",
+    });
+
     const documents = [];
 
     for (const { field, required } of FILE_FIELDS) {
       const value = form.get(field);
       if (!(value instanceof File) || value.size === 0) {
         if (required) {
+          logStage("validation_failed_missing_document", {
+            requestId,
+            field,
+          });
           return NextResponse.json(
-            { error: `Missing required document: ${field}` },
+            {
+              error: `Missing required document: ${field}`,
+              code: "VALIDATION",
+              stage: "request_validation",
+              requestId,
+            },
             { status: 400 }
           );
         }
@@ -51,19 +111,48 @@ export async function POST(request: Request) {
         field as keyof typeof DOCUMENT_TYPE_BY_FIELD
       ] as DocumentType;
 
+      logStage("document_parsing_start", {
+        requestId,
+        field,
+        documentType,
+        filename: value.name,
+        size: value.size,
+        mimeType: value.type,
+      });
+
       const ingested = await ingestUploadedFile(value, documentType);
       documents.push(ingested);
+
+      logStage("document_parsing_ok", {
+        requestId,
+        field,
+        documentType,
+        filename: ingested.filename,
+        extractedTextLength: ingested.extractedText.length,
+      });
     }
 
     if (documents.length < 4) {
+      logStage("validation_failed_min_documents", {
+        requestId,
+        count: documents.length,
+      });
       return NextResponse.json(
         {
           error:
             "Minimum required evidence: Job Description, Resume, Interview Notes, and Scorecards.",
+          code: "VALIDATION",
+          stage: "request_validation",
+          requestId,
         },
         { status: 400 }
       );
     }
+
+    logStage("ai_client_init_start", {
+      requestId,
+      documentCount: documents.length,
+    });
 
     const aiResult = await analyzeHiringEvidence({
       context: {
@@ -76,12 +165,21 @@ export async function POST(request: Request) {
       documents,
     });
 
+    logStage("model_invocation_ok", {
+      requestId,
+      readinessScore: aiResult.decisionReadiness?.score,
+      readinessLabel: aiResult.decisionReadiness?.label,
+      competencyCount: aiResult.competencyCoverage?.competencies?.length,
+    });
+
+    logStage("persist_start", { requestId });
     const analysis = saveAiDecisionIntelligence({
       candidateName: aiResult.candidate.name || candidateName || "Candidate",
       roleTitle: aiResult.candidate.role || roleTitle || "Open Role",
       documents,
       aiResult,
     });
+    logStage("persist_ok", { requestId, analysisId: analysis.id });
 
     return NextResponse.json({
       data: {
@@ -94,14 +192,19 @@ export async function POST(request: Request) {
           extractedTextLength: doc.extractedText.length,
         })),
       },
+      requestId,
     });
   } catch (error) {
+    const serialized = serializeError(error);
+    console.error("[api/analyze] stage=unhandled_error", {
+      requestId,
+      ...serialized,
+    });
+
     const message =
       error instanceof Error
         ? error.message
         : "Failed to generate Decision Intelligence";
-
-    console.error("[api/analyze]", error);
 
     const status =
       error instanceof AiProviderError && error.code === "MISSING_API_KEY"
@@ -116,6 +219,9 @@ export async function POST(request: Request) {
       {
         error: message,
         code: error instanceof AiProviderError ? error.code : "UNKNOWN",
+        stage: "unhandled_error",
+        requestId,
+        details: serialized,
       },
       { status }
     );
