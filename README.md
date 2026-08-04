@@ -2,6 +2,11 @@
 
 **AI-powered hiring intelligence that turns resumes, interview notes, scorecards, and hiring documents into evidence-backed Decision Readiness—never Hire or Reject.**
 
+## Live Demo
+
+Explore the MVP in the browser at [decisionready-ai.vercel.app](https://decisionready-ai.vercel.app).
+The live app demonstrates the end-to-end Decision Intelligence experience without any local setup.
+
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -12,7 +17,10 @@
 
 ## Table of Contents
 
+- [Live Demo](#live-demo)
 - [Overview](#overview)
+- [Current Status](#current-status)
+- [Why I Built DecisionReady AI](#why-i-built-decisionready-ai)
 - [Features](#features)
 - [Product Workflow](#product-workflow)
 - [Tech Stack](#tech-stack)
@@ -20,7 +28,7 @@
 - [Folder Structure](#folder-structure)
 - [Running Locally](#running-locally)
 - [Environment Variables](#environment-variables)
-- [Future Roadmap](#future-roadmap)
+- [Roadmap](#roadmap)
 - [Limitations](#limitations)
 - [Author](#author)
 
@@ -37,6 +45,21 @@ Traditional ATS workflows store documents and comments, but they rarely make evi
 DecisionReady AI closes that gap by extracting structured signals, mapping evidence to role competencies with citations, computing **Decision Readiness** (coverage, quality, alignment, completeness), and presenting an executive dashboard, evidence explorer, recruiter copilot, and printable Decision Brief.
 
 Hiring decisions stay with people. The product evaluates the **evidence substrate**—not whether a candidate should be hired.
+
+## Current Status
+
+**Status:** MVP (`v1.0.0`)
+
+This project demonstrates the complete Decision Intelligence workflow from document upload through AI analysis, dashboard review, and Decision Brief generation. It is designed as a product prototype that shows the end-to-end concept clearly, not as a production ATS.
+
+## Why I Built DecisionReady AI
+
+Recruiters already have most of the evidence they need: resumes, interview notes, scorecards, and hiring-manager feedback.
+The real challenge is not collecting more inputs, but turning fragmented hiring evidence into something coherent before debrief.
+DecisionReady AI explores how AI can help synthesize that evidence into a Decision Intelligence layer.
+Instead of replacing recruiters or hiring managers, it focuses on making evidence coverage, strength, and gaps visible.
+The goal is to support more structured, evidence-backed hiring discussions.
+It is a product exploration of how AI can improve decision readiness while keeping final judgment human.
 
 ---
 
@@ -130,17 +153,15 @@ Product principle: **Decision Support, not Decision Making.**
 
 ```text
 .
-├── docs/                 # Product docs, screenshot gallery, images/
-│   ├── images/
-│   └── screenshots.md
-├── public/               # Logo, icons, manifest
-├── scripts/              # Screenshot capture helper
+├── docs/           # Product docs, images, supporting documentation
+├── public/         # Static assets
+├── scripts/        # Local utilities and helpers
 ├── src/
-│   ├── ai/               # Analyze orchestration, schemas, prompts
-│   ├── app/              # (marketing) · (app) · (prepare) · api/
-│   ├── components/       # landing · prepare · analysis · intelligence · brief · …
-│   ├── hooks/
-│   └── lib/ai/           # Provider, extractors, evidence graph, decision engine, copilot
+│   ├── ai/         # Analysis orchestration, schemas, prompts
+│   ├── app/        # App Router pages and API routes
+│   ├── components/ # UI and product surfaces
+│   ├── hooks/      # Shared React hooks
+│   └── lib/        # AI, ingestion, utilities, shared logic
 ├── .env.example
 ├── package.json
 └── tsconfig.json
@@ -182,7 +203,7 @@ Keep secrets in `.env.local` only. `.env*` is gitignored (`.env.example` is comm
 
 ---
 
-## Future Roadmap
+## Roadmap
 
 - Persistent cloud storage and multi-user auth (replace local `.data/` JSON)
 - ATS connectors (Greenhouse / Lever / Ashby) for document sync
@@ -196,7 +217,7 @@ Keep secrets in `.env.local` only. `.env*` is gitignored (`.env.example` is comm
 
 ## Limitations
 
-- **No Hire / Reject recommendations by design** — readiness only
+- **Intentionally avoids automated Hire/Reject recommendations.** DecisionReady AI supports evidence-based hiring discussions rather than replacing human judgment.
 - **Local file-backed storage** (`.data/analyses.json`), not production multi-tenant persistence
 - **No authentication / multi-user isolation** yet
 - **LLM extraction quality depends on document clarity** and Groq availability
