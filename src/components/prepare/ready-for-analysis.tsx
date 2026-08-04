@@ -16,6 +16,12 @@ interface ReadyForAnalysisProps {
   onGenerate: () => void;
   /** When true, scroll into view and pulse the CTA (after final required upload). */
   highlightCta?: boolean;
+  /** Live pipeline stages while /api/analyze is running. */
+  progressStages?: Array<{
+    id: string;
+    label: string;
+    status: "pending" | "in_progress" | "completed";
+  }>;
 }
 
 export function ReadyForAnalysis({
@@ -28,6 +34,7 @@ export function ReadyForAnalysis({
   error,
   onGenerate,
   highlightCta = false,
+  progressStages = [],
 }: ReadyForAnalysisProps) {
   const sectionRef = useRef<HTMLElement>(null);
   const ctaRef = useRef<HTMLButtonElement>(null);
@@ -92,7 +99,9 @@ export function ReadyForAnalysis({
             · {providedCount}/{totalCount} total
           </span>
         </p>
-        <p className="text-[11px] text-[#64748B]">Est. ≈ 2 min</p>
+        <p className="text-[11px] text-[#64748B]">
+          {submitting ? "Running analysis…" : "Typically under 1 min"}
+        </p>
       </div>
 
       <div
@@ -111,7 +120,44 @@ export function ReadyForAnalysis({
         />
       </div>
 
-      {requiredReady ? (
+      {submitting && progressStages.length > 0 ? (
+        <ul className="mt-2.5 list-none space-y-1 p-0" aria-live="polite">
+          {progressStages.map((stage) => (
+            <li
+              key={stage.id}
+              className="flex items-center gap-2 text-[11px] text-[#475569]"
+            >
+              {stage.status === "completed" ? (
+                <Check
+                  className="size-3 shrink-0 text-[#166534]"
+                  strokeWidth={2.5}
+                  aria-hidden="true"
+                />
+              ) : stage.status === "in_progress" ? (
+                <Loader2
+                  className="size-3 shrink-0 animate-spin text-[#064E3B]"
+                  aria-hidden="true"
+                />
+              ) : (
+                <span
+                  className="size-3 shrink-0 rounded-full border border-[#CBD5E1]"
+                  aria-hidden="true"
+                />
+              )}
+              <span
+                className={cn(
+                  stage.status === "completed" && "text-[#166534]",
+                  stage.status === "in_progress" && "font-semibold text-[#064E3B]",
+                  stage.status === "pending" && "text-[#94A3B8]"
+                )}
+              >
+                {stage.status === "completed" ? "✓ " : ""}
+                {stage.label}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : requiredReady ? (
         <ul className="mt-2.5 flex list-none flex-wrap gap-x-3 gap-y-1 p-0">
           {[
             "Evidence Explorer",

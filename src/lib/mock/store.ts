@@ -322,11 +322,11 @@ export async function saveAiDecisionIntelligence(input: {
     await persist([updated, ...analyses]);
   }
 
-  const verify = (await ensureLoaded()).find((item) => item.id === id);
+  // Avoid a redundant Blob/FS re-read — `persist` already updated memory.
   logStore("save_ai_ok", {
     analysisId: id,
-    verified: Boolean(verify?.aiResult),
-    readiness: verify?.aiResult?.decisionReadiness?.label ?? null,
+    verified: Boolean(updated.aiResult),
+    readiness: updated.aiResult?.decisionReadiness?.label ?? null,
   });
 
   return updated;

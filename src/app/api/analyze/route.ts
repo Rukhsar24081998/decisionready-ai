@@ -1,9 +1,14 @@
-import { NextResponse } from "next/server";
 import { analyzeHiringEvidence, AiProviderError } from "@/lib/ai/provider";
+import {
+  PIPELINE_PROGRESS_LABELS,
+  PipelineTimer,
+  type PipelineProgressEvent,
+} from "@/lib/ai/pipeline-timing";
 import { ingestUploadedFile } from "@/lib/ingestion/ingest-file";
 import {
   DOCUMENT_TYPE_BY_FIELD,
   type DocumentType,
+  type IngestedDocument,
 } from "@/lib/ingestion/types";
 import { saveAiDecisionIntelligence } from "@/lib/mock/store";
 
@@ -48,187 +53,299 @@ function serializeError(error: unknown): Record<string, unknown> {
   return { message: String(error) };
 }
 
+function parseLabelForFile(field: string, filename: string): string {
+  const base =
+    field === "jobDescription"
+      ? "Parse JD"
+      : field === "resume"
+        ? "Parse Resume"
+        : field === "interviewNotes"
+          ? "Parse Interview Notes"
+          : field === "scorecards"
+            ? "Parse Scorecard"
+            : field === "hiringManagerNotes"
+              ? "Parse Hiring Manager Notes"
+              : `Parse ${field}`;
+  const ext = filename.split(".").pop()?.toUpperCase() ?? "FILE";
+  return `${base} (${ext})`;
+}
+
 /**
  * POST /api/analyze
  * Multipart form: hiring evidence files + candidate context.
- * Pipeline: ingest → extractors → Evidence Graph → narrative LLM → Decision Engine.
+ * Pipeline: parallel ingest → extractors → Evidence Graph → narrative LLM → Decision Engine.
+ *
+ * Streams NDJSON progress events, then a final `result` (or `error`) line.
  */
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID().slice(0, 8);
+  const encoder = new TextEncoder();
 
-  try {
-    logStage("request_received", {
-      requestId,
-      contentType: request.headers.get("content-type"),
-      contentLength: request.headers.get("content-length"),
-      groqKeyConfigured: Boolean(process.env.GROQ_API_KEY?.trim()),
-      groqModel: process.env.GROQ_MODEL?.trim() || "(default fallbacks)",
-    });
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: PipelineProgressEvent) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+      };
 
-    logStage("formdata_parse_start", { requestId });
-    const form = await request.formData();
-    logStage("formdata_parse_ok", { requestId });
+      const timer = new PipelineTimer();
 
-    const candidateName = String(form.get("candidateName") ?? "").trim();
-    const roleTitle = String(form.get("roleTitle") ?? "").trim();
-    const department = String(form.get("department") ?? "").trim();
-    const hiringManager = String(form.get("hiringManager") ?? "").trim();
-    const hiringStage = String(form.get("hiringStage") ?? "").trim();
-
-    logStage("request_validation", {
-      requestId,
-      candidateName: Boolean(candidateName),
-      roleTitle: Boolean(roleTitle),
-      department: Boolean(department),
-      hiringManager: Boolean(hiringManager),
-      hiringStage: hiringStage || "(empty)",
-    });
-
-    const documents = [];
-
-    for (const { field, required } of FILE_FIELDS) {
-      const value = form.get(field);
-      if (!(value instanceof File) || value.size === 0) {
-        if (required) {
-          logStage("validation_failed_missing_document", {
-            requestId,
-            field,
-          });
-          return NextResponse.json(
-            {
-              error: `Missing required document: ${field}`,
-              code: "VALIDATION",
-              stage: "request_validation",
-              requestId,
-            },
-            { status: 400 }
-          );
-        }
-        continue;
-      }
-
-      const documentType = DOCUMENT_TYPE_BY_FIELD[
-        field as keyof typeof DOCUMENT_TYPE_BY_FIELD
-      ] as DocumentType;
-
-      logStage("document_parsing_start", {
-        requestId,
-        field,
-        documentType,
-        filename: value.name,
-        size: value.size,
-        mimeType: value.type,
-      });
-
-      const ingested = await ingestUploadedFile(value, documentType);
-      documents.push(ingested);
-
-      logStage("document_parsing_ok", {
-        requestId,
-        field,
-        documentType,
-        filename: ingested.filename,
-        extractedTextLength: ingested.extractedText.length,
-      });
-    }
-
-    if (documents.length < 4) {
-      logStage("validation_failed_min_documents", {
-        requestId,
-        count: documents.length,
-      });
-      return NextResponse.json(
-        {
-          error:
-            "Minimum required evidence: Job Description, Resume, Interview Notes, and Scorecards.",
-          code: "VALIDATION",
-          stage: "request_validation",
+      try {
+        logStage("request_received", {
           requestId,
-        },
-        { status: 400 }
-      );
-    }
+          contentType: request.headers.get("content-type"),
+          contentLength: request.headers.get("content-length"),
+          groqKeyConfigured: Boolean(process.env.GROQ_API_KEY?.trim()),
+          groqModel: process.env.GROQ_MODEL?.trim() || "(default fallbacks)",
+        });
 
-    logStage("ai_client_init_start", {
-      requestId,
-      documentCount: documents.length,
-    });
+        send({
+          type: "stage",
+          id: "upload",
+          label: PIPELINE_PROGRESS_LABELS.upload,
+          status: "start",
+        });
 
-    const aiResult = await analyzeHiringEvidence({
-      context: {
-        candidateName,
-        roleTitle,
-        department,
-        hiringManager,
-        hiringStage,
-      },
-      documents,
-    });
+        logStage("formdata_parse_start", { requestId });
+        const form = await timer.measure("File upload / FormData", () =>
+          request.formData()
+        );
+        logStage("formdata_parse_ok", { requestId });
 
-    logStage("model_invocation_ok", {
-      requestId,
-      readinessScore: aiResult.decisionReadiness?.score,
-      readinessLabel: aiResult.decisionReadiness?.label,
-      competencyCount: aiResult.competencyCoverage?.competencies?.length,
-    });
+        send({
+          type: "stage",
+          id: "upload",
+          label: PIPELINE_PROGRESS_LABELS.upload,
+          status: "done",
+          ms: timer.snapshot().find((e) => e.label === "File upload / FormData")
+            ?.ms,
+        });
 
-    logStage("persist_start", { requestId });
-    const analysis = await saveAiDecisionIntelligence({
-      candidateName: aiResult.candidate.name || candidateName || "Candidate",
-      roleTitle: aiResult.candidate.role || roleTitle || "Open Role",
-      documents,
-      aiResult,
-    });
-    logStage("persist_ok", {
-      requestId,
-      analysisId: analysis.id,
-      hasAiResult: Boolean(analysis.aiResult),
-    });
+        const candidateName = String(form.get("candidateName") ?? "").trim();
+        const roleTitle = String(form.get("roleTitle") ?? "").trim();
+        const department = String(form.get("department") ?? "").trim();
+        const hiringManager = String(form.get("hiringManager") ?? "").trim();
+        const hiringStage = String(form.get("hiringStage") ?? "").trim();
 
-    return NextResponse.json({
-      data: {
-        analysisId: analysis.id,
-        analysis,
-        intelligence: analysis.aiResult,
-        documents: documents.map((doc) => ({
-          id: doc.id,
-          filename: doc.filename,
-          documentType: doc.documentType,
-          extractedTextLength: doc.extractedText.length,
-        })),
-      },
-      requestId,
-    });
-  } catch (error) {
-    const serialized = serializeError(error);
-    console.error("[api/analyze] stage=unhandled_error", {
-      requestId,
-      ...serialized,
-    });
+        logStage("request_validation", {
+          requestId,
+          candidateName: Boolean(candidateName),
+          roleTitle: Boolean(roleTitle),
+          department: Boolean(department),
+          hiringManager: Boolean(hiringManager),
+          hiringStage: hiringStage || "(empty)",
+        });
 
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to generate Decision Intelligence";
+        type IngestJob = {
+          field: (typeof FILE_FIELDS)[number]["field"];
+          file: File;
+          documentType: DocumentType;
+          required: boolean;
+        };
 
-    const status =
-      error instanceof AiProviderError && error.code === "MISSING_API_KEY"
-        ? 503
-        : error instanceof AiProviderError && error.code === "RATE_LIMIT"
-          ? 429
-          : error instanceof AiProviderError && error.code === "TIMEOUT"
-            ? 504
-            : 500;
+        const jobs: IngestJob[] = [];
 
-    return NextResponse.json(
-      {
-        error: message,
-        code: error instanceof AiProviderError ? error.code : "UNKNOWN",
-        stage: "unhandled_error",
-        requestId,
-        details: serialized,
-      },
-      { status }
-    );
-  }
+        for (const { field, required } of FILE_FIELDS) {
+          const value = form.get(field);
+          if (!(value instanceof File) || value.size === 0) {
+            if (required) {
+              logStage("validation_failed_missing_document", {
+                requestId,
+                field,
+              });
+              send({
+                type: "error",
+                error: `Missing required document: ${field}`,
+                code: "VALIDATION",
+                stage: "request_validation",
+                requestId,
+              });
+              controller.close();
+              return;
+            }
+            continue;
+          }
+
+          const documentType = DOCUMENT_TYPE_BY_FIELD[
+            field as keyof typeof DOCUMENT_TYPE_BY_FIELD
+          ] as DocumentType;
+
+          jobs.push({ field, file: value, documentType, required });
+        }
+
+        if (jobs.length < 4) {
+          logStage("validation_failed_min_documents", {
+            requestId,
+            count: jobs.length,
+          });
+          send({
+            type: "error",
+            error:
+              "Minimum required evidence: Job Description, Resume, Interview Notes, and Scorecards.",
+            code: "VALIDATION",
+            stage: "request_validation",
+            requestId,
+          });
+          controller.close();
+          return;
+        }
+
+        // Parallel parse — each document is independent; reuse text everywhere after.
+        send({
+          type: "stage",
+          id: "parse",
+          label: PIPELINE_PROGRESS_LABELS.parse,
+          status: "start",
+        });
+        const parseStarted = performance.now();
+
+        const documents: IngestedDocument[] = await Promise.all(
+          jobs.map(async (job) => {
+            const label = parseLabelForFile(job.field, job.file.name);
+            logStage("document_parsing_start", {
+              requestId,
+              field: job.field,
+              documentType: job.documentType,
+              filename: job.file.name,
+              size: job.file.size,
+              mimeType: job.file.type,
+            });
+
+            const ingested = await timer.measure(label, () =>
+              ingestUploadedFile(job.file, job.documentType)
+            );
+
+            logStage("document_parsing_ok", {
+              requestId,
+              field: job.field,
+              documentType: job.documentType,
+              filename: ingested.filename,
+              extractedTextLength: ingested.extractedText.length,
+            });
+
+            return ingested;
+          })
+        );
+
+        const parseMs = Math.max(
+          0,
+          Math.round(performance.now() - parseStarted)
+        );
+        send({
+          type: "stage",
+          id: "parse",
+          label: PIPELINE_PROGRESS_LABELS.parse,
+          status: "done",
+          ms: parseMs,
+        });
+
+        logStage("ai_client_init_start", {
+          requestId,
+          documentCount: documents.length,
+        });
+
+        const aiResult = await analyzeHiringEvidence({
+          context: {
+            candidateName,
+            roleTitle,
+            department,
+            hiringManager,
+            hiringStage,
+          },
+          documents,
+          timer,
+          onProgress: (event) => send(event),
+        });
+
+        logStage("model_invocation_ok", {
+          requestId,
+          readinessScore: aiResult.decisionReadiness?.score,
+          readinessLabel: aiResult.decisionReadiness?.label,
+          competencyCount: aiResult.competencyCoverage?.competencies?.length,
+        });
+
+        send({
+          type: "stage",
+          id: "persist",
+          label: PIPELINE_PROGRESS_LABELS.persist,
+          status: "start",
+        });
+        logStage("persist_start", { requestId });
+        const analysis = await timer.measure("Persistence (Blob/local)", () =>
+          saveAiDecisionIntelligence({
+            candidateName:
+              aiResult.candidate.name || candidateName || "Candidate",
+            roleTitle: aiResult.candidate.role || roleTitle || "Open Role",
+            documents,
+            aiResult,
+          })
+        );
+        const persistMs =
+          timer.snapshot().find((e) => e.label === "Persistence (Blob/local)")
+            ?.ms ?? 0;
+        send({
+          type: "stage",
+          id: "persist",
+          label: PIPELINE_PROGRESS_LABELS.persist,
+          status: "done",
+          ms: persistMs,
+        });
+        logStage("persist_ok", {
+          requestId,
+          analysisId: analysis.id,
+          hasAiResult: Boolean(analysis.aiResult),
+        });
+
+        timer.report(`request ${requestId}`);
+
+        send({
+          type: "result",
+          requestId,
+          timings: timer.snapshot(),
+          totalMs: timer.totalMs(),
+          data: {
+            analysisId: analysis.id,
+            analysis,
+            intelligence: analysis.aiResult,
+            documents: documents.map((doc) => ({
+              id: doc.id,
+              filename: doc.filename,
+              documentType: doc.documentType,
+              extractedTextLength: doc.extractedText.length,
+            })),
+          },
+        });
+      } catch (error) {
+        const serialized = serializeError(error);
+        console.error("[api/analyze] stage=unhandled_error", {
+          requestId,
+          ...serialized,
+        });
+
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Failed to generate Decision Intelligence";
+
+        send({
+          type: "error",
+          error: message,
+          code: error instanceof AiProviderError ? error.code : "UNKNOWN",
+          stage: "unhandled_error",
+          requestId,
+          details: serialized,
+        });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

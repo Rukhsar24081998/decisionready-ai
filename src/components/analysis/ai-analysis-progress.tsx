@@ -25,6 +25,7 @@ import {
 import { ReasoningVisualization } from "@/components/analysis/reasoning-visualization";
 import { ProgressStepper } from "@/components/prepare/progress-stepper";
 import { formatClock } from "@/lib/format";
+import { readAnalysisProgress } from "@/lib/ai/consume-analyze-stream";
 import { cn } from "@/lib/utils";
 
 type StepStatus = "completed" | "in_progress" | "pending";
@@ -129,8 +130,10 @@ const INPUT_EVIDENCE = [
   { label: "Interview Scorecards", icon: FileSpreadsheet },
 ] as const;
 
-const ANALYSIS_MS = 18000;
-const STEP_MS = ANALYSIS_MS / PIPELINE_STEPS.length;
+/** Fallback only when progress metadata is missing (e.g. deep-link refresh). */
+const FALLBACK_ANALYSIS_MS = 2400;
+/** When server analysis already finished, reveal steps quickly then route. */
+const POST_COMPLETE_REVEAL_MS = 1600;
 
 function formatElapsed(ms: number) {
   const totalSec = Math.floor(ms / 1000);
@@ -152,11 +155,25 @@ export function AiAnalysisProgress({ analysisId }: AiAnalysisProgressProps) {
   );
   const prevCompleted = useRef<Set<string>>(new Set());
   const startedAt = useRef<Date>(new Date());
+  const durationMs = useRef(FALLBACK_ANALYSIS_MS);
+  const alreadyComplete = useRef(false);
 
-  const progress = Math.min(100, Math.round((elapsed / ANALYSIS_MS) * 100));
+  useEffect(() => {
+    const stored = readAnalysisProgress(analysisId);
+    if (stored) {
+      alreadyComplete.current = true;
+      durationMs.current = POST_COMPLETE_REVEAL_MS;
+    }
+  }, [analysisId]);
+
+  const progress = Math.min(
+    100,
+    Math.round((elapsed / durationMs.current) * 100)
+  );
+  const stepMs = durationMs.current / PIPELINE_STEPS.length;
   const activeStepIndex = Math.min(
     PIPELINE_STEPS.length - 1,
-    Math.floor(elapsed / STEP_MS)
+    Math.floor(elapsed / stepMs)
   );
 
   const stepStatuses: StepStatus[] = useMemo(
@@ -173,7 +190,9 @@ export function AiAnalysisProgress({ analysisId }: AiAnalysisProgressProps) {
   const statusCopy =
     progress >= 100
       ? "Decision Intelligence ready"
-      : STATUS_MESSAGES[activeStepIndex];
+      : alreadyComplete.current
+        ? `✓ ${STATUS_MESSAGES[activeStepIndex]}`
+        : STATUS_MESSAGES[activeStepIndex];
 
   const currentConfidence = Math.min(
     96,
@@ -189,11 +208,12 @@ export function AiAnalysisProgress({ analysisId }: AiAnalysisProgressProps) {
     startedAt.current = new Date();
     const started = performance.now();
     let frame = 0;
+    const target = durationMs.current;
 
     const tick = (now: number) => {
-      const next = Math.min(ANALYSIS_MS, now - started);
+      const next = Math.min(target, now - started);
       setElapsed(next);
-      if (next < ANALYSIS_MS) {
+      if (next < target) {
         frame = requestAnimationFrame(tick);
       } else {
         setDone(true);
@@ -202,7 +222,7 @@ export function AiAnalysisProgress({ analysisId }: AiAnalysisProgressProps) {
 
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, []);
+  }, [analysisId]);
 
   useEffect(() => {
     const next: Partial<Record<string, Date>> = {};
@@ -227,7 +247,7 @@ export function AiAnalysisProgress({ analysisId }: AiAnalysisProgressProps) {
     if (!done) return;
     const timeout = window.setTimeout(() => {
       router.push(`/analyses/${analysisId}/intelligence`);
-    }, 900);
+    }, alreadyComplete.current ? 450 : 900);
     return () => window.clearTimeout(timeout);
   }, [analysisId, done, router]);
 

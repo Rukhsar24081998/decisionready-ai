@@ -22,6 +22,10 @@ import { ProgressStepper } from "@/components/prepare/progress-stepper";
 import { ReadyForAnalysis } from "@/components/prepare/ready-for-analysis";
 import { UploadCard } from "@/components/prepare/upload-card";
 import { WorkspaceSidebar } from "@/components/prepare/workspace-sidebar";
+import {
+  consumeAnalyzeStream,
+  storeAnalysisProgress,
+} from "@/lib/ai/consume-analyze-stream";
 import { cn } from "@/lib/utils";
 
 const EVIDENCE_SLOTS = [
@@ -75,6 +79,21 @@ const WIZARD_STEPS = [
   { id: "generate", label: "Generate" },
 ] as const;
 
+/** Ordered stages shown during live /api/analyze progress. */
+const LIVE_PROGRESS_ORDER = [
+  { id: "parse", label: "Parsing documents" },
+  { id: "extract_resume", label: "Extracting resume" },
+  { id: "extract_jd", label: "Extracting job description" },
+  { id: "extract_interview", label: "Extracting interview notes" },
+  { id: "extract_scorecard", label: "Extracting interview scorecard" },
+  { id: "evidence_graph", label: "Building evidence graph" },
+  { id: "decision_engine", label: "Computing Decision Readiness" },
+  { id: "narrative", label: "Preparing dashboard" },
+  { id: "persist", label: "Saving analysis" },
+] as const;
+
+type LiveProgressId = (typeof LIVE_PROGRESS_ORDER)[number]["id"];
+
 export function StartAnalysisPage() {
   const router = useRouter();
   const [context, setContext] = useState<CandidateContextValues>({
@@ -92,6 +111,9 @@ export function StartAnalysisPage() {
   const [error, setError] = useState<string | null>(null);
   const [highlightCta, setHighlightCta] = useState(false);
   const wasReadyRef = useRef(false);
+  const [stageStatus, setStageStatus] = useState<
+    Partial<Record<LiveProgressId, "pending" | "in_progress" | "completed">>
+  >({});
 
   const requiredSlots = EVIDENCE_SLOTS.filter((s) => s.required);
   const requiredUploaded = requiredSlots.filter((slot) =>
@@ -148,6 +170,13 @@ export function StartAnalysisPage() {
 
     setSubmitting(true);
     setError(null);
+    setStageStatus(
+      Object.fromEntries(
+        LIVE_PROGRESS_ORDER.map((s) => [s.id, "pending" as const])
+      ) as Partial<Record<LiveProgressId, "pending" | "in_progress" | "completed">>
+    );
+
+    const completedStages: string[] = [];
 
     try {
       const candidateName =
@@ -187,45 +216,71 @@ export function StartAnalysisPage() {
         body: form,
       });
 
-      const rawBody = await analyzeRes.text();
-      let payload: {
-        data?: {
-          analysisId: string;
-          analysis?: import("@/lib/types").DecisionAnalysis;
-        };
-        error?: string;
-        code?: string;
-        stage?: string;
-        requestId?: string;
-      } = {};
+      const result = await consumeAnalyzeStream(analyzeRes, {
+        onStage: (event) => {
+          const id = event.id as LiveProgressId;
+          if (!LIVE_PROGRESS_ORDER.some((s) => s.id === id)) {
+            // Map aggregate extract → mark extract_* in progress when extract starts
+            if (event.id === "extract" && event.status === "start") {
+              setStageStatus((prev) => ({
+                ...prev,
+                extract_resume: prev.extract_resume === "completed" ? "completed" : "in_progress",
+                extract_jd: prev.extract_jd === "completed" ? "completed" : "in_progress",
+                extract_interview:
+                  prev.extract_interview === "completed" ? "completed" : "in_progress",
+                extract_scorecard:
+                  prev.extract_scorecard === "completed" ? "completed" : "in_progress",
+              }));
+            }
+            if (event.id === "dashboard" || event.id === "brief") {
+              setStageStatus((prev) => ({
+                ...prev,
+                narrative:
+                  event.status === "done"
+                    ? "completed"
+                    : prev.narrative === "completed"
+                      ? "completed"
+                      : "in_progress",
+              }));
+              if (event.status === "done" && !completedStages.includes("narrative")) {
+                completedStages.push("narrative");
+              }
+            }
+            return;
+          }
 
-      try {
-        payload = rawBody ? (JSON.parse(rawBody) as typeof payload) : {};
-      } catch {
-        throw new Error(
-          `Server returned a non-JSON ${analyzeRes.status} response while generating Decision Intelligence. ` +
-            `Check Vercel Function logs for /api/analyze. ` +
-            `Body preview: ${rawBody.slice(0, 180).replace(/\s+/g, " ")}`
-        );
-      }
+          setStageStatus((prev) => ({
+            ...prev,
+            [id]:
+              event.status === "done"
+                ? "completed"
+                : event.status === "start"
+                  ? "in_progress"
+                  : prev[id] ?? "pending",
+          }));
 
-      if (!analyzeRes.ok || !payload.data?.analysisId) {
-        throw new Error(
-          payload.error ||
-            `Unable to generate Decision Intelligence (${analyzeRes.status}${
-              payload.code ? ` · ${payload.code}` : ""
-            }${payload.stage ? ` · ${payload.stage}` : ""})`
-        );
-      }
+          if (event.status === "done" && !completedStages.includes(id)) {
+            completedStages.push(id);
+          }
+        },
+      });
 
-      if (payload.data.analysis) {
+      if (result.analysis) {
         const { persistAnalysisLocally } = await import(
           "@/components/intelligence/intelligence-restore-bridge"
         );
-        persistAnalysisLocally(payload.data.analysis);
+        persistAnalysisLocally(result.analysis);
       }
 
-      router.push(`/analyses/${payload.data.analysisId}/analyzing`);
+      storeAnalysisProgress({
+        analysisId: result.analysisId,
+        completedStages,
+        timings: result.timings,
+        totalMs: result.totalMs,
+        completedAt: Date.now(),
+      });
+
+      router.push(`/analyses/${result.analysisId}/analyzing`);
     } catch (err) {
       setError(
         err instanceof Error
@@ -233,8 +288,15 @@ export function StartAnalysisPage() {
           : "Unable to generate Decision Intelligence right now. Please try again."
       );
       setSubmitting(false);
+      setStageStatus({});
     }
   };
+
+  const progressStages = LIVE_PROGRESS_ORDER.map((stage) => ({
+    id: stage.id,
+    label: stage.label,
+    status: stageStatus[stage.id] ?? ("pending" as const),
+  }));
 
   const primarySlot = EVIDENCE_SLOTS[0];
   const compactSlots = EVIDENCE_SLOTS.slice(1);
@@ -358,6 +420,7 @@ export function StartAnalysisPage() {
                 error={error}
                 onGenerate={generateIntelligence}
                 highlightCta={highlightCta}
+                progressStages={progressStages}
               />
             </div>
           </div>

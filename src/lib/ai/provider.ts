@@ -32,10 +32,35 @@ import type {
   ResumeExtraction,
   ScorecardExtraction,
 } from "@/lib/ai/schemas/extraction-schema";
+import {
+  PIPELINE_PROGRESS_LABELS,
+  PipelineTimer,
+  type PipelineProgressEvent,
+  type PipelineProgressStage,
+} from "@/lib/ai/pipeline-timing";
 
 export interface AnalyzeHiringEvidenceInput {
   context: AnalysisContextInput;
   documents: IngestedDocument[];
+  /** Optional request-scoped timer (shared with /api/analyze ingest). */
+  timer?: PipelineTimer;
+  /** Optional progress callback for streaming UI (NDJSON). */
+  onProgress?: (event: Extract<PipelineProgressEvent, { type: "stage" }>) => void;
+}
+
+function emitStage(
+  input: AnalyzeHiringEvidenceInput,
+  id: PipelineProgressStage,
+  status: "start" | "done",
+  ms?: number
+): void {
+  input.onProgress?.({
+    type: "stage",
+    id,
+    label: PIPELINE_PROGRESS_LABELS[id],
+    status,
+    ms,
+  });
 }
 
 export class AiProviderError extends Error {
@@ -213,7 +238,10 @@ function finalizeResult(
   return result;
 }
 
-async function runDocumentExtractors(documents: IngestedDocument[]): Promise<{
+async function runDocumentExtractors(
+  documents: IngestedDocument[],
+  input: AnalyzeHiringEvidenceInput
+): Promise<{
   resume?: ResumeExtraction;
   jobDescription?: JobDescriptionExtraction;
   interview?: InterviewExtraction;
@@ -233,6 +261,33 @@ async function runDocumentExtractors(documents: IngestedDocument[]): Promise<{
   const interviewDoc = findDocument(documents, "Interview Notes");
   const scorecardDoc = findDocument(documents, "Scorecards");
   const hmDoc = findDocument(documents, "Hiring Manager Notes");
+  const timer = input.timer;
+
+  const timedExtract = async <T>(
+    stage: PipelineProgressStage,
+    timingLabel: string,
+    run: () => Promise<T | undefined>
+  ): Promise<T | undefined> => {
+    emitStage(input, stage, "start");
+    const began = performance.now();
+    try {
+      if (timer) {
+        return await timer.measure(timingLabel, run);
+      }
+      return await run();
+    } finally {
+      emitStage(
+        input,
+        stage,
+        "done",
+        Math.max(0, Math.round(performance.now() - began))
+      );
+    }
+  };
+
+  // Independent document extractors run concurrently (wall time ≈ slowest).
+  emitStage(input, "extract", "start");
+  const extractStarted = performance.now();
 
   const [
     resume,
@@ -242,36 +297,53 @@ async function runDocumentExtractors(documents: IngestedDocument[]): Promise<{
     hiringManagerNotes,
   ] = await Promise.all([
     resumeDoc
-      ? extractResume({
-          filename: resumeDoc.filename,
-          extractedText: resumeDoc.extractedText,
-        })
+      ? timedExtract("extract_resume", "Extract Resume", () =>
+          extractResume({
+            filename: resumeDoc.filename,
+            extractedText: resumeDoc.extractedText,
+          })
+        )
       : Promise.resolve(undefined),
     jdDoc
-      ? extractJobDescription({
-          filename: jdDoc.filename,
-          extractedText: jdDoc.extractedText,
-        })
+      ? timedExtract("extract_jd", "Extract JD", () =>
+          extractJobDescription({
+            filename: jdDoc.filename,
+            extractedText: jdDoc.extractedText,
+          })
+        )
       : Promise.resolve(undefined),
     interviewDoc
-      ? extractInterview({
-          filename: interviewDoc.filename,
-          extractedText: interviewDoc.extractedText,
-        })
+      ? timedExtract("extract_interview", "Extract Interview Notes", () =>
+          extractInterview({
+            filename: interviewDoc.filename,
+            extractedText: interviewDoc.extractedText,
+          })
+        )
       : Promise.resolve(undefined),
     scorecardDoc
-      ? extractScorecard({
-          filename: scorecardDoc.filename,
-          extractedText: scorecardDoc.extractedText,
-        })
+      ? timedExtract("extract_scorecard", "Extract Scorecard", () =>
+          extractScorecard({
+            filename: scorecardDoc.filename,
+            extractedText: scorecardDoc.extractedText,
+          })
+        )
       : Promise.resolve(undefined),
     hmDoc
-      ? extractHiringManagerNotes({
-          filename: hmDoc.filename,
-          extractedText: hmDoc.extractedText,
-        })
+      ? timedExtract("extract_hm", "Extract Hiring Manager Notes", () =>
+          extractHiringManagerNotes({
+            filename: hmDoc.filename,
+            extractedText: hmDoc.extractedText,
+          })
+        )
       : Promise.resolve(undefined),
   ]);
+
+  emitStage(
+    input,
+    "extract",
+    "done",
+    Math.max(0, Math.round(performance.now() - extractStarted))
+  );
 
   if (resume) console.log("Resume extracted");
   if (jobDescription) console.log("JD extracted");
@@ -451,6 +523,7 @@ export async function analyzeHiringEvidence(
   }
 
   const started = Date.now();
+  const timer = input.timer ?? new PipelineTimer();
   console.info("[ai/provider] stage=analyze_start", {
     documentCount: input.documents.length,
     models: getModelCandidates(),
@@ -458,21 +531,33 @@ export async function analyzeHiringEvidence(
   const client = getGroqClient();
   const models = getModelCandidates();
 
-  // Step 1 — extractors
+  // Step 1 — extractors (parallel)
   console.info("[ai/provider] stage=extractors_start");
-  const extractions = await runDocumentExtractors(input.documents);
+  const extractions = await runDocumentExtractors(input.documents, {
+    ...input,
+    timer,
+  });
   console.info("[ai/provider] stage=extractors_ok");
 
-  // Step 2 — evidence graph
+  // Step 2 — evidence graph + competency map (sync, CPU-only)
   console.info("[ai/provider] stage=evidence_graph_start");
-  const graph = mergeEvidence({
-    resume: extractions.resume,
-    jobDescription: extractions.jobDescription,
-    interview: extractions.interview,
-    scorecard: extractions.scorecard,
-    hiringManagerNotes: extractions.hiringManagerNotes,
-    documentNames: extractions.documentNames,
-  });
+  emitStage(input, "evidence_graph", "start");
+  const graph = timer.measureSync("Evidence Graph", () =>
+    mergeEvidence({
+      resume: extractions.resume,
+      jobDescription: extractions.jobDescription,
+      interview: extractions.interview,
+      scorecard: extractions.scorecard,
+      hiringManagerNotes: extractions.hiringManagerNotes,
+      documentNames: extractions.documentNames,
+    })
+  );
+  emitStage(
+    input,
+    "evidence_graph",
+    "done",
+    timer.snapshot().find((e) => e.label === "Evidence Graph")?.ms
+  );
   console.info("[ai/provider] stage=evidence_graph_ok", {
     competencies: graph.competencies.length,
     missing: graph.missingCompetencies.length,
@@ -491,9 +576,14 @@ export async function analyzeHiringEvidence(
   console.log(`Missing competencies: ${graph.missingCompetencies.length}`);
 
   // Step 3 — small LLM narrative from graph only
+  // (Executive summary + brief strengths share one grounded call — required for identical outputs.)
   let lastError: unknown;
   let responseText: string | undefined;
   let selectedModel: string | undefined;
+
+  emitStage(input, "narrative", "start");
+  emitStage(input, "brief", "start");
+  timer.start("Decision Brief / Narrative");
 
   for (let index = 0; index < models.length; index += 1) {
     const model = models[index];
@@ -579,6 +669,10 @@ export async function analyzeHiringEvidence(
     summary = fallbackNarrativeSummary(graph, input.context);
   }
 
+  const narrativeMs = timer.end("Decision Brief / Narrative");
+  emitStage(input, "narrative", "done", narrativeMs);
+  emitStage(input, "brief", "done", narrativeMs);
+
   console.log("Executive Summary generated");
   console.log(
     `Discussion Topics generated: ${summary.discussionTopics.length}`
@@ -588,18 +682,32 @@ export async function analyzeHiringEvidence(
   );
 
   // Step 4 — Decision Engine (graph + narrative → Schema B)
-  const lean = buildLeanPayloadFromEvidenceGraph({
-    graph,
-    summary,
-    context: input.context,
-    documents: input.documents,
-    experience: extractions.experience,
-  });
+  emitStage(input, "decision_engine", "start");
+  emitStage(input, "dashboard", "start");
+  const lean = timer.measureSync("Decision Engine", () =>
+    buildLeanPayloadFromEvidenceGraph({
+      graph,
+      summary,
+      context: input.context,
+      documents: input.documents,
+      experience: extractions.experience,
+    })
+  );
+  const engineMs =
+    timer.snapshot().find((e) => e.label === "Decision Engine")?.ms ?? 0;
+  emitStage(input, "decision_engine", "done", engineMs);
 
-  return finalizeResult(
+  const result = finalizeResult(
     lean,
     input.documents,
     Date.now() - started,
     selectedModel ?? models[0] ?? "unknown"
   );
+  emitStage(input, "dashboard", "done", engineMs);
+
+  if (!input.timer) {
+    timer.report("analyzeHiringEvidence");
+  }
+
+  return result;
 }
