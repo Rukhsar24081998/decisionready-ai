@@ -1,11 +1,12 @@
 # DecisionReady AI
 
-**AI-powered hiring intelligence that turns resumes, interview notes, scorecards, and hiring documents into evidence-backed Decision Readiness—never Hire or Reject.**
+**DecisionReady AI is an AI-powered Decision Intelligence platform that transforms hiring evidence into structured, evidence-backed recruiting insights while keeping hiring decisions firmly in human hands.**
 
-## Live Demo
+## 🚀 Live Demo
 
-Explore the MVP in the browser at [decisionready-ai.vercel.app](https://decisionready-ai.vercel.app).
-The live app demonstrates the end-to-end Decision Intelligence experience without any local setup.
+🌐 **https://decisionready-ai.vercel.app**
+
+Experience the complete Decision Intelligence workflow—from document upload to an evidence-backed Decision Brief.
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
