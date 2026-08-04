@@ -1,6 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import path from "path";
-import { list, put } from "@vercel/blob";
+import "server-only";
+
 import type {
   CreateDecisionAnalysisInput,
   DecisionAnalysis,
@@ -10,22 +9,24 @@ import type {
 import type { AiIntelligenceResult } from "@/ai/output-schema";
 import type { IngestedDocument } from "@/lib/ingestion/types";
 import { seedDecisionAnalyses } from "@/lib/mock/seed";
+import { blobAnalysisStore } from "@/lib/mock/store.blob";
+import { localAnalysisStore } from "@/lib/mock/store.local";
+import {
+  cloneAnalyses,
+  hasBlobToken,
+  isVercelRuntime,
+  logStore,
+  type AnalysisStoreBackend,
+} from "@/lib/mock/store-shared";
 
 /**
- * Decision Analysis store.
+ * Server-only Decision Analysis store facade.
  *
- * Local/dev: file-backed `.data/analyses.json` + in-memory cache.
- * Vercel/prod: Vercel Blob (requires BLOB_READ_WRITE_TOKEN) + in-memory cache.
+ * - Production (BLOB_READ_WRITE_TOKEN): Vercel Blob
+ * - Local/dev: Node filesystem under `.data/analyses.json`
  *
- * Serverless instances do not share memory or the local filesystem. Without Blob
- * (or another durable backend), POST /api/analyze can succeed in one instance
- * while GET /analyses/[id]/intelligence runs in another and finds nothing.
+ * This module imports Node/Blob backends and must never be imported by client code.
  */
-
-const DATA_DIR = path.join(process.cwd(), ".data");
-const STORE_PATH = path.join(DATA_DIR, "analyses.json");
-const BLOB_PREFIX = "decisionready/analyses/";
-const BLOB_INDEX_PATH = `${BLOB_PREFIX}index.json`;
 
 type GlobalStore = {
   __decisionAnalyses?: DecisionAnalysis[];
@@ -38,23 +39,11 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function hasBlobToken(): boolean {
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
-}
-
-function isVercelRuntime(): boolean {
-  return process.env.VERCEL === "1" || Boolean(process.env.VERCEL_ENV);
-}
-
-function logStore(
-  stage: string,
-  details?: Record<string, unknown>
-): void {
-  console.info("[store]", { stage, ...details });
-}
-
-function cloneAnalyses(list: DecisionAnalysis[]): DecisionAnalysis[] {
-  return structuredClone(list);
+function getBackend(): { name: "blob" | "fs"; store: AnalysisStoreBackend } {
+  if (hasBlobToken()) {
+    return { name: "blob", store: blobAnalysisStore };
+  }
+  return { name: "fs", store: localAnalysisStore };
 }
 
 function setMemory(next: DecisionAnalysis[]): void {
@@ -69,82 +58,6 @@ function getMemory(): DecisionAnalysis[] | null {
   return globalStore.__decisionAnalyses;
 }
 
-async function readFromFs(): Promise<DecisionAnalysis[] | null> {
-  if (!existsSync(STORE_PATH)) return null;
-  try {
-    const raw = readFileSync(STORE_PATH, "utf8");
-    const parsed = JSON.parse(raw) as DecisionAnalysis[];
-    logStore("fs_read_ok", { count: parsed.length, path: STORE_PATH });
-    return parsed;
-  } catch (error) {
-    console.error("[store] stage=fs_read_failed", error);
-    return null;
-  }
-}
-
-function writeToFs(next: DecisionAnalysis[]): void {
-  try {
-    if (!existsSync(DATA_DIR)) {
-      mkdirSync(DATA_DIR, { recursive: true });
-    }
-    writeFileSync(STORE_PATH, JSON.stringify(next, null, 2), "utf8");
-    logStore("fs_write_ok", { count: next.length, path: STORE_PATH });
-  } catch (error) {
-    console.error("[store] stage=fs_write_failed", {
-      path: STORE_PATH,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
-async function readFromBlob(): Promise<DecisionAnalysis[] | null> {
-  try {
-    const listed = await list({ prefix: BLOB_PREFIX });
-    const indexBlob = listed.blobs.find((blob) => blob.pathname === BLOB_INDEX_PATH);
-    if (!indexBlob) {
-      logStore("blob_index_missing", { prefix: BLOB_PREFIX });
-      return null;
-    }
-
-    const response = await fetch(indexBlob.url, { cache: "no-store" });
-    if (!response.ok) {
-      console.error("[store] stage=blob_index_fetch_failed", {
-        status: response.status,
-      });
-      return null;
-    }
-
-    const parsed = (await response.json()) as DecisionAnalysis[];
-    logStore("blob_read_ok", { count: parsed.length });
-    return parsed;
-  } catch (error) {
-    console.error("[store] stage=blob_read_failed", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return null;
-  }
-}
-
-async function writeToBlob(next: DecisionAnalysis[]): Promise<void> {
-  try {
-    await put(BLOB_INDEX_PATH, JSON.stringify(next), {
-      access: "public",
-      addRandomSuffix: false,
-      allowOverwrite: true,
-      contentType: "application/json",
-    });
-    logStore("blob_write_ok", {
-      count: next.length,
-      path: BLOB_INDEX_PATH,
-    });
-  } catch (error) {
-    console.error("[store] stage=blob_write_failed", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
-  }
-}
-
 async function ensureLoaded(): Promise<DecisionAnalysis[]> {
   const cached = getMemory();
   if (cached) {
@@ -152,24 +65,21 @@ async function ensureLoaded(): Promise<DecisionAnalysis[]> {
     return cached;
   }
 
+  const backend = getBackend();
   logStore("load_start", {
     vercel: isVercelRuntime(),
     blobConfigured: hasBlobToken(),
+    backend: backend.name,
   });
 
-  let loaded: DecisionAnalysis[] | null = null;
+  let loaded = await backend.store.readAll();
 
-  if (hasBlobToken()) {
-    loaded = await readFromBlob();
-  } else {
-    loaded = await readFromFs();
-    if (isVercelRuntime()) {
-      console.error(
-        "[store] stage=vercel_without_blob_token BLOB_READ_WRITE_TOKEN is missing. " +
-          "Analyses saved in one serverless instance will not be visible in another. " +
-          "Add a Vercel Blob store token to persist Decision Intelligence."
-      );
-    }
+  if (!loaded && isVercelRuntime() && !hasBlobToken()) {
+    console.error(
+      "[store] stage=vercel_without_blob_token BLOB_READ_WRITE_TOKEN is missing. " +
+        "Analyses saved in one serverless instance will not be visible in another. " +
+        "Add a Vercel Blob store token to persist Decision Intelligence."
+    );
   }
 
   if (!loaded) {
@@ -184,18 +94,13 @@ async function ensureLoaded(): Promise<DecisionAnalysis[]> {
 
 async function persist(next: DecisionAnalysis[]): Promise<void> {
   setMemory(next);
+  const backend = getBackend();
   logStore("persist_start", {
     count: next.length,
-    backend: hasBlobToken() ? "blob" : "fs",
+    backend: backend.name,
     ids: next.slice(0, 8).map((item) => item.id),
   });
-
-  if (hasBlobToken()) {
-    await writeToBlob(next);
-    return;
-  }
-
-  writeToFs(next);
+  await backend.store.writeAll(next);
 }
 
 export async function listDecisionAnalyses(): Promise<DecisionAnalysis[]> {
@@ -326,13 +231,19 @@ export async function saveAiDecisionIntelligence(input: {
   const timestamp = nowIso();
   const id = input.id ?? `da_${crypto.randomUUID().slice(0, 8)}`;
   const existingIndex = analyses.findIndex((analysis) => analysis.id === id);
+  const backend = getBackend();
 
   logStore("save_ai_start", {
     analysisId: id,
     existing: existingIndex >= 0,
     hasAiResult: Boolean(input.aiResult),
     documentCount: input.documents.length,
-    backend: hasBlobToken() ? "blob" : isVercelRuntime() ? "memory-only-risk" : "fs",
+    backend:
+      backend.name === "blob"
+        ? "blob"
+        : isVercelRuntime()
+          ? "memory-only-risk"
+          : "fs",
   });
 
   const base: DecisionAnalysis =

@@ -1,7 +1,6 @@
 import type { AiIntelligenceResult } from "@/ai/output-schema";
 import { hydrateAiResult } from "@/lib/ai/hydrate-ai-result";
 import { formatPercentage, normalizeConfidence } from "@/lib/ai/score-utils";
-import { getDecisionAnalysis } from "@/lib/mock/store";
 import type { DecisionAnalysis } from "@/lib/types";
 import {
   buildCandidatePresentationProfile,
@@ -500,21 +499,9 @@ function mapFromAiResult(
 }
 
 /**
- * Load Dashboard data from AI-generated Decision Intelligence only.
- * Returns null when no AI result exists for the analysis.
+ * Build Dashboard data from an AI Decision Intelligence payload.
+ * This module is client-safe (no Node fs / server store imports).
  */
-export async function getIntelligenceDashboardData(
-  analysisId: string
-): Promise<IntelligenceDashboardData | null> {
-  const analysis = await getDecisionAnalysis(analysisId);
-  console.info("[dashboard-data] stage=get_intelligence", {
-    analysisId,
-    found: Boolean(analysis),
-    hasAiResult: Boolean(analysis?.aiResult),
-  });
-  if (!analysis?.aiResult) return null;
-  return buildIntelligenceDashboardData(analysis);
-}
 
 /** Build dashboard data from an in-memory / restored analysis record. */
 export function buildIntelligenceDashboardData(

@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { AiIntelligenceResult } from "@/ai/output-schema";
 import { hydrateAiResult } from "@/lib/ai/hydrate-ai-result";
 import { formatPercentage, normalizeConfidence } from "@/lib/ai/score-utils";

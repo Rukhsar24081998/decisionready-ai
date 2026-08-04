@@ -1,11 +1,10 @@
-import type { Metadata } from "next";
+import { getIntelligenceDashboardData } from "@/components/intelligence/dashboard-data.server";
 import { DecisionIntelligenceDashboard } from "@/components/intelligence/decision-intelligence-dashboard";
-import { getIntelligenceDashboardData } from "@/components/intelligence/dashboard-data";
 import { IntelligenceRestoreBridge } from "@/components/intelligence/intelligence-restore-bridge";
 import { DotGrid } from "@/components/landing/dot-grid";
 import { landingContainer } from "@/components/landing/landing-tokens";
 import { cn } from "@/lib/utils";
-
+import type { Metadata } from "next";
 interface PageProps {
   params: Promise<{ analysisId: string }>;
 }
