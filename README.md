@@ -210,9 +210,9 @@ Keep secrets in `.env.local` only. `.env*` is gitignored (`.env.example` is comm
 
 **Rukhsar Khan** — Aspiring Product Manager · AI product builds with LLMs, React, and end-to-end craft
 
+- Live App: [decisionready-ai.vercel.app](https://decisionready-ai.vercel.app)
 - Portfolio: [rukhsar-khan-portfolio.vercel.app](https://rukhsar-khan-portfolio.vercel.app)
-- GitHub: [github.com/Rukhsar24081998](https://github.com/Rukhsar24081998)
-- LinkedIn: add your public profile URL here
+- LinkedIn: [rukhsar-khan-1a8382120](https://www.linkedin.com/in/rukhsar-khan-1a8382120/)
 - Email: [rukhsarkhan24081998@gmail.com](mailto:rukhsarkhan24081998@gmail.com)
 
 ---
