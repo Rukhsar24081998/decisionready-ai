@@ -6,7 +6,7 @@ DecisionReady AI is an AI-powered decision-intelligence platform for hiring team
 
 Hiring debriefs often happen with fragmented, incomplete, or contradictory evidence. Interviewers submit vague scorecards, required competencies go untested, and panels default to gut feel because nobody can quickly see what was verified versus assumed. DecisionReady AI is built for **Recruiters, Hiring Managers, and Interviewers** who need to know whether a panel is debrief-ready before the meeting starts.
 
-Unlike ATS products that optimize workflow (scheduling, stages, status), this MVP scores **evidence quality** — Decision Readiness per competency, with gaps and citations. It never recommends Hire or Reject: that reduces liability and bias risk, and keeps human judgment central. The product’s job ends at “here is what you know and don’t know.”
+Unlike ATS products that optimize workflow (scheduling, stages, status), this MVP scores **evidence quality** — Decision Readiness per competency, with gaps and citations. It never recommends Hire or Reject — that reduces liability and bias risk, and keeps human judgment central. The product’s job ends at “here is what you know and don’t know.”
 
 The working MVP is powered by **Next.js, React, TypeScript, Tailwind CSS, Groq, and Vercel**, and was evaluated end-to-end against a realistic mock hiring package (Aarav Mehta) spanning multiple document types and intentional evidence-quality scenarios.
 
@@ -21,6 +21,7 @@ The working MVP is powered by **Next.js, React, TypeScript, Tailwind CSS, Groq, 
 | Core Innovation | Decision Readiness instead of Hire/Reject |
 | Tech Stack | Next.js, React, TypeScript, Tailwind CSS, Groq, Vercel |
 | Prototype | Working MVP |
+| Duration | 5-Day MVP |
 | Evaluation | Tested using realistic mock hiring documents |
 | Live Demo | https://decisionready-ai.vercel.app |
 | GitHub | https://github.com/Rukhsar24081998/decisionready-ai |
@@ -50,7 +51,7 @@ A candidate can clear five “completed” interview stages with three-word scor
 ## Target users
 
 | Persona | Role in the loop | What they need |
-|---|---|---|
+|-------|------------------|----------------|
 | **Recruiter / TA Partner** | Owns the req, coordinates the panel, runs the debrief | Know if the panel is debrief-ready before the meeting |
 | **Hiring Manager** | Owns the final call | See where evidence is strong vs. thin without re-reading five docs |
 | **Interviewer / Panelist** | Provides one slice of evidence | Confidence their scorecard is used, not just filed |
@@ -332,7 +333,7 @@ Full path: Candidate Context → Upload → Processing → Profile → Dashboard
 
 ## Known limitations
 
-- Mock packages ≠ volume testing on messy real docs (scanned PDFs, inconsistent templates, non-English).
+- Mock-package testing is not a substitute for volume testing on messy real docs (scanned PDFs, inconsistent templates, non-English).
 - Extraction quality is sensitive to formatting; tabular/non-standard scorecards reduce confidence.
 - No formal inter-rater study vs. real recruiters yet.
 - Multi-document runs take minutes (acceptable for pre-debrief prep; target for async/caching later).
@@ -346,7 +347,7 @@ Full path: Candidate Context → Upload → Processing → Profile → Dashboard
 ## Failure cases / iterations
 
 | Failure | Fix |
-|---|---|
+|--------|-----|
 | Over-attributing “mentioned” skills as “demonstrated” | Tightened extraction prompts to distinguish mention vs. demonstration |
 | Brief narrative smoothed over real gaps | Moved brief generation to rigid templates |
 | (Risk) Confident answers when evidence missing | Abstention + citation UI; tested as primary negative case |
@@ -359,7 +360,7 @@ Full path: Candidate Context → Upload → Processing → Profile → Dashboard
 - Legal/compliance review of any production deployment handling candidate PII
 
 | Strength | Limitation |
-|---|---|
+|----------|------------|
 | Clear Decision Readiness + per-competency gaps | Not validated at real hiring volume |
 | Traceable citations on scores and copilot answers | Formatting-sensitive extraction |
 | Honest abstention on missing evidence / hire-reject asks | No inter-rater study yet |
@@ -375,7 +376,7 @@ Handoff for taking a validated MVP to a multi-tenant platform. Prefer product-sa
 ## Architecture overview
 
 | Layer | MVP today | Direction |
-|---|---|---|
+|-------|-----------|-----------|
 | Frontend | Next.js App Router, React 19, TypeScript, Tailwind | Keep; add a11y pass on dense views |
 | Backend | Next.js API routes per pipeline stage | Clearer service boundaries as volume grows |
 | AI | Groq via OpenAI-compatible SDK; central prompt orchestration | Prompt version registry + eval gates |
@@ -385,27 +386,27 @@ Handoff for taking a validated MVP to a multi-tenant platform. Prefer product-sa
 
 ## AI pipeline (five stages)
 
-1. **Ingest** — Parse PDF/DOCX; tag document type  
-2. **Extract** — Typed LLM calls → structured JSON (skills, competencies, ratings, quotes)  
-3. **Evidence graph** — Link signals to competencies + source passages  
-4. **Competency map** — JD requirements vs. evidence strength/diversity  
+1. **Ingest** — Parse PDF/DOCX; tag document type
+2. **Extract** — Typed LLM calls → structured JSON (skills, competencies, ratings, quotes)
+3. **Evidence graph** — Link signals to competencies + source passages
+4. **Competency map** — JD requirements vs. evidence strength/diversity
 5. **Decision engine** — Per-competency readiness, gaps, overall readiness → Brief + Analyst
 
 Keep stages narrow and separately testable so extraction bugs cannot silently corrupt scoring.
 
 ## Prompt flow
 
-- Document-type-specific extraction prompts → constrained JSON schemas (Zod)  
-- Mapping / readiness logic over the graph  
-- Copilot: retrieval-constrained; refuse hire/reject and unanswered questions  
-- Brief: templated section fill, not freeform narrative  
+- Document-type-specific extraction prompts → constrained JSON schemas (Zod)
+- Mapping / readiness logic over the graph
+- Copilot: retrieval-constrained; refuse hire/reject and unanswered questions
+- Brief: templated section fill, not freeform narrative
 
 Version every prompt; attribute score changes to prompt versions.
 
 ## Key APIs (conceptual)
 
 | Surface | Role |
-|---|---|
+|--------|------|
 | Analyze / generate intelligence | Ingest docs → run pipeline → persist analysis |
 | Analyses CRUD / restore | Load dashboard & intelligence views across instances |
 | Copilot | Grounded Q&A over stored evidence |
@@ -413,30 +414,30 @@ Version every prompt; attribute score changes to prompt versions.
 
 ## Storage
 
-- Analyses must survive across serverless instances (production Blob / durable store).  
-- Retain raw documents in object storage for audit and re-eval.  
+- Analyses must survive across serverless instances (production Blob / durable store).
+- Retain raw documents in object storage for audit and re-eval.
 - Suggested entities: candidates, requisitions, documents, evidence items/links, competency scores, briefs — with passage pointers for explainability.
 
 ## Known technical limitations
 
-- Sync multi-stage LLM work on the request path  
-- MVP auth/RBAC not production-grade  
-- Dense Matrix/Explorer need virtualization at larger competency counts  
-- AI trust metrics (citation validity, refusal rate) need first-class monitoring  
+- Sync multi-stage LLM work on the request path
+- MVP auth/RBAC not production-grade
+- Dense Matrix/Explorer need virtualization at larger competency counts
+- AI trust metrics (citation validity, refusal rate) need first-class monitoring
 
 ## Future roadmap
 
 | Phase | Focus |
-|---|---|
+|-------|-------|
 | **0–3 mo** | Postgres + blob docs, auth/RBAC, CI eval suite, copilot streaming |
 | **3–6 mo** | Multi-tenant, first ATS integration (Greenhouse/Ashby), job queue, prompt observability |
 | **6–12 mo** | Aggregate bias-review views, SOC 2 track, org competency frameworks, inter-rater study |
 
 ## Deployment considerations
 
-- Hiring docs are sensitive PII — encryption, retention/deletion policy, legal review before enterprise.  
-- Keep human-in-the-loop and no hire/reject as hard product constraints in prompts and UI.  
-- Gate model/prompt changes on golden-set evals (abstention cases weighted heavily).  
+- Hiring docs are sensitive PII — encryption, retention/deletion policy, legal review before enterprise.
+- Keep human-in-the-loop and no hire/reject as hard product constraints in prompts and UI.
+- Gate model/prompt changes on golden-set evals (abstention cases weighted heavily).
 - Background workers for parse/extract/graph once volume exceeds demo scale.
 
 ---
@@ -444,7 +445,7 @@ Version every prompt; attribute score changes to prompt versions.
 # Product Decisions
 
 | Decision | Why |
-|---|---|
+|----------|-----|
 | **Never recommend Hire / Reject** | Liability, bias amplification, and regulatory risk. “Evidence sufficient?” is safer and more adoptable than “AI said reject.” Enforced in prompts and UI — no Approve/Reject button. |
 | **Evidence quality over decision speed** | Bad hires and unfair rejects come from thin evidence, not from slow tools. Optimize the layer ATS ignores. |
 | **Confidence / readiness scoring** | Panels need to know *where* evidence is strong or thin. Per-competency readiness beats a single opaque “fit” number. |
@@ -469,4 +470,4 @@ Version every prompt; attribute score changes to prompt versions.
 
 ---
 
-*DecisionReady AI — Product Case Study & Engineering Handoff · Solo PM & builder · 5-day MVP*
+*DecisionReady AI — Product Case Study & Engineering Handoff · 5-Day MVP*
