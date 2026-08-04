@@ -8,10 +8,6 @@
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![Groq](https://img.shields.io/badge/Groq-LLM-F55036?logo=groq&logoColor=white)](https://groq.com/)
 
-![Decision Intelligence Dashboard](docs/images/decision-dashboard.png)
-
-**[More screenshots →](docs/screenshots.md)** · Landing · Upload · Analysis · Profile · Evidence Matrix · Explorer · Copilot · Decision Brief
-
 ---
 
 ## Table of Contents
@@ -19,7 +15,6 @@
 - [Overview](#overview)
 - [Features](#features)
 - [Product Workflow](#product-workflow)
-- [More Screenshots](#more-screenshots)
 - [Tech Stack](#tech-stack)
 - [Architecture](#architecture)
 - [Folder Structure](#folder-structure)
@@ -86,14 +81,6 @@ Decision Intelligence Dashboard (Profile · Matrix · Explorer · Copilot)
         ▼
 Decision Brief + Print Report
 ```
-
----
-
-## More Screenshots
-
-Full product gallery (landing, upload, analysis progress, profile, matrix, explorer, copilot, brief, print):
-
-**→ [docs/screenshots.md](docs/screenshots.md)**
 
 ---
 
