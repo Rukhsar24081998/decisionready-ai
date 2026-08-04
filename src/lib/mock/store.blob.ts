@@ -1,40 +1,44 @@
 import "server-only";
 
-import { list, put } from "@vercel/blob";
+import { get, put } from "@vercel/blob";
 import type { DecisionAnalysis } from "@/lib/types";
 import {
   BLOB_INDEX_PATH,
-  BLOB_PREFIX,
   type AnalysisStoreBackend,
   logStore,
 } from "@/lib/mock/store-shared";
 
+const PRIVATE_ACCESS = "private" as const;
+
 /**
  * Vercel Blob backend for production persistence across serverless instances.
+ * Store is PRIVATE — all reads use get() with access: "private"; never public URLs.
  * Must never be imported from client components.
  */
 export const blobAnalysisStore: AnalysisStoreBackend = {
   async readAll(): Promise<DecisionAnalysis[] | null> {
     try {
-      const listed = await list({ prefix: BLOB_PREFIX });
-      const indexBlob = listed.blobs.find(
-        (blob) => blob.pathname === BLOB_INDEX_PATH
-      );
-      if (!indexBlob) {
-        logStore("blob_index_missing", { prefix: BLOB_PREFIX });
+      const result = await get(BLOB_INDEX_PATH, {
+        access: PRIVATE_ACCESS,
+        useCache: false,
+      });
+
+      if (!result) {
+        logStore("blob_index_missing", { path: BLOB_INDEX_PATH });
         return null;
       }
 
-      const response = await fetch(indexBlob.url, { cache: "no-store" });
-      if (!response.ok) {
-        console.error("[store] stage=blob_index_fetch_failed", {
-          status: response.status,
+      if (result.statusCode !== 200 || !result.stream) {
+        logStore("blob_index_not_ready", {
+          path: BLOB_INDEX_PATH,
+          statusCode: result.statusCode,
         });
         return null;
       }
 
-      const parsed = (await response.json()) as DecisionAnalysis[];
-      logStore("blob_read_ok", { count: parsed.length });
+      const text = await new Response(result.stream).text();
+      const parsed = JSON.parse(text) as DecisionAnalysis[];
+      logStore("blob_read_ok", { count: parsed.length, path: BLOB_INDEX_PATH });
       return parsed;
     } catch (error) {
       console.error("[store] stage=blob_read_failed", {
@@ -47,7 +51,7 @@ export const blobAnalysisStore: AnalysisStoreBackend = {
   async writeAll(next: DecisionAnalysis[]): Promise<void> {
     try {
       await put(BLOB_INDEX_PATH, JSON.stringify(next), {
-        access: "public",
+        access: PRIVATE_ACCESS,
         addRandomSuffix: false,
         allowOverwrite: true,
         contentType: "application/json",
@@ -55,6 +59,7 @@ export const blobAnalysisStore: AnalysisStoreBackend = {
       logStore("blob_write_ok", {
         count: next.length,
         path: BLOB_INDEX_PATH,
+        access: PRIVATE_ACCESS,
       });
     } catch (error) {
       console.error("[store] stage=blob_write_failed", {

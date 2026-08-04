@@ -14,6 +14,7 @@ import { localAnalysisStore } from "@/lib/mock/store.local";
 import {
   cloneAnalyses,
   hasBlobToken,
+  isBuildTime,
   isVercelRuntime,
   logStore,
   type AnalysisStoreBackend,
@@ -70,7 +71,16 @@ async function ensureLoaded(): Promise<DecisionAnalysis[]> {
     vercel: isVercelRuntime(),
     blobConfigured: hasBlobToken(),
     backend: backend.name,
+    buildTime: isBuildTime(),
   });
+
+  // Never touch Blob/FS during `next build` static generation.
+  if (isBuildTime()) {
+    const seeded = cloneAnalyses(seedDecisionAnalyses);
+    logStore("seed_loaded_build_skip_io", { count: seeded.length });
+    setMemory(seeded);
+    return seeded;
+  }
 
   let loaded = await backend.store.readAll();
 
@@ -83,9 +93,11 @@ async function ensureLoaded(): Promise<DecisionAnalysis[]> {
   }
 
   if (!loaded) {
+    // In-memory seeds only — do not write seed data to Blob/FS on load.
     loaded = cloneAnalyses(seedDecisionAnalyses);
-    logStore("seed_loaded", { count: loaded.length });
-    await persist(loaded);
+    logStore("seed_loaded_memory_only", { count: loaded.length });
+    setMemory(loaded);
+    return loaded;
   }
 
   setMemory(loaded);
@@ -94,6 +106,15 @@ async function ensureLoaded(): Promise<DecisionAnalysis[]> {
 
 async function persist(next: DecisionAnalysis[]): Promise<void> {
   setMemory(next);
+
+  if (isBuildTime()) {
+    logStore("persist_skipped_build", {
+      count: next.length,
+      ids: next.slice(0, 8).map((item) => item.id),
+    });
+    return;
+  }
+
   const backend = getBackend();
   logStore("persist_start", {
     count: next.length,

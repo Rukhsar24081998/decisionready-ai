@@ -23,6 +23,14 @@ export function isVercelRuntime(): boolean {
   return process.env.VERCEL === "1" || Boolean(process.env.VERCEL_ENV);
 }
 
+/** True during `next build` static generation / collect phase. */
+export function isBuildTime(): boolean {
+  return (
+    process.env.NEXT_PHASE === "phase-production-build" ||
+    process.env.NEXT_PHASE === "phase-export"
+  );
+}
+
 export function cloneAnalyses(list: DecisionAnalysis[]): DecisionAnalysis[] {
   return structuredClone(list);
 }

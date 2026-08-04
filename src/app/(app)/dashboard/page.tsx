@@ -12,7 +12,11 @@ import { listDecisionAnalyses } from "@/lib/mock/store";
 /**
  * Screen 1 — Decision Dashboard
  * Product entry point for listing and opening Decision Analyses.
+ *
+ * force-dynamic: must not prerender against Blob/FS at build time.
  */
+export const dynamic = "force-dynamic";
+
 export default async function DecisionDashboardPage() {
   const analyses = await listDecisionAnalyses();
   const hasAnalyses = analyses.length > 0;
