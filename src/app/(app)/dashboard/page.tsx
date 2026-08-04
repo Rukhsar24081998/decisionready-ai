@@ -13,8 +13,8 @@ import { listDecisionAnalyses } from "@/lib/mock/store";
  * Screen 1 — Decision Dashboard
  * Product entry point for listing and opening Decision Analyses.
  */
-export default function DecisionDashboardPage() {
-  const analyses = listDecisionAnalyses();
+export default async function DecisionDashboardPage() {
+  const analyses = await listDecisionAnalyses();
   const hasAnalyses = analyses.length > 0;
 
   return (

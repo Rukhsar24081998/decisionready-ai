@@ -431,10 +431,15 @@ function mapFromAiResult(
 /**
  * Load Decision Brief data from AI-generated Decision Intelligence only.
  */
-export function getDecisionBriefData(
+export async function getDecisionBriefData(
   analysisId: string
-): DecisionBriefData | null {
-  const analysis = getDecisionAnalysis(analysisId);
+): Promise<DecisionBriefData | null> {
+  const analysis = await getDecisionAnalysis(analysisId);
+  console.info("[brief-data] stage=get_brief", {
+    analysisId,
+    found: Boolean(analysis),
+    hasAiResult: Boolean(analysis?.aiResult),
+  });
   if (!analysis?.aiResult) return null;
   const ai = hydrateAiResult(
     analysis.aiResult,

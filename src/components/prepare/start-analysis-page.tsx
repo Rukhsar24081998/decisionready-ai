@@ -189,7 +189,10 @@ export function StartAnalysisPage() {
 
       const rawBody = await analyzeRes.text();
       let payload: {
-        data?: { analysisId: string };
+        data?: {
+          analysisId: string;
+          analysis?: import("@/lib/types").DecisionAnalysis;
+        };
         error?: string;
         code?: string;
         stage?: string;
@@ -213,6 +216,13 @@ export function StartAnalysisPage() {
               payload.code ? ` · ${payload.code}` : ""
             }${payload.stage ? ` · ${payload.stage}` : ""})`
         );
+      }
+
+      if (payload.data.analysis) {
+        const { persistAnalysisLocally } = await import(
+          "@/components/intelligence/intelligence-restore-bridge"
+        );
+        persistAnalysisLocally(payload.data.analysis);
       }
 
       router.push(`/analyses/${payload.data.analysisId}/analyzing`);

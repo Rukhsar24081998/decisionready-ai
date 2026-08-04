@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { DecisionBriefReport } from "@/components/brief/decision-brief-report";
 import { getDecisionBriefData } from "@/components/brief/brief-data";
+import { IntelligenceRestoreBridge } from "@/components/intelligence/intelligence-restore-bridge";
 import { DotGrid } from "@/components/landing/dot-grid";
 import {
   landingBtnPrimary,
@@ -24,25 +25,28 @@ export const metadata: Metadata = {
  */
 export default async function DecisionBriefPage({ params }: PageProps) {
   const { analysisId } = await params;
-  const data = getDecisionBriefData(analysisId);
+  console.info("[brief/page] stage=load", { analysisId });
+  const data = await getDecisionBriefData(analysisId);
+  console.info("[brief/page] stage=loaded", {
+    analysisId,
+    hasData: Boolean(data),
+  });
 
   if (!data) {
     return (
       <main className="relative overflow-hidden">
         <DotGrid className="opacity-25" />
         <div className={cn(landingContainer, "relative py-16")}>
-          <h1 className="text-[28px] font-semibold tracking-tight text-[#0F172A]">
-            Decision Brief unavailable
-          </h1>
-          <p className="mt-3 max-w-xl text-[14px] leading-relaxed text-[#64748B]">
-            No AI-generated Decision Brief was found for this analysis. Generate
-            Decision Intelligence from hiring evidence first.
+          <IntelligenceRestoreBridge analysisId={analysisId} />
+          <p className="mt-4 max-w-xl text-[13px] text-[#64748B]">
+            After restore completes, open the Decision Brief again from the
+            dashboard.
           </p>
           <Link
-            href="/analyses/new"
-            className={cn(landingBtnPrimary, "mt-6 inline-flex")}
+            href={`/analyses/${analysisId}/intelligence`}
+            className={cn(landingBtnPrimary, "mt-4 inline-flex")}
           >
-            Create Decision Analysis
+            Open Decision Intelligence
           </Link>
         </div>
       </main>

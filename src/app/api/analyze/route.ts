@@ -173,17 +173,22 @@ export async function POST(request: Request) {
     });
 
     logStage("persist_start", { requestId });
-    const analysis = saveAiDecisionIntelligence({
+    const analysis = await saveAiDecisionIntelligence({
       candidateName: aiResult.candidate.name || candidateName || "Candidate",
       roleTitle: aiResult.candidate.role || roleTitle || "Open Role",
       documents,
       aiResult,
     });
-    logStage("persist_ok", { requestId, analysisId: analysis.id });
+    logStage("persist_ok", {
+      requestId,
+      analysisId: analysis.id,
+      hasAiResult: Boolean(analysis.aiResult),
+    });
 
     return NextResponse.json({
       data: {
         analysisId: analysis.id,
+        analysis,
         intelligence: analysis.aiResult,
         documents: documents.map((doc) => ({
           id: doc.id,

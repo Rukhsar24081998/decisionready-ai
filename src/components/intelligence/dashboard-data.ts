@@ -503,11 +503,24 @@ function mapFromAiResult(
  * Load Dashboard data from AI-generated Decision Intelligence only.
  * Returns null when no AI result exists for the analysis.
  */
-export function getIntelligenceDashboardData(
+export async function getIntelligenceDashboardData(
   analysisId: string
-): IntelligenceDashboardData | null {
-  const analysis = getDecisionAnalysis(analysisId);
+): Promise<IntelligenceDashboardData | null> {
+  const analysis = await getDecisionAnalysis(analysisId);
+  console.info("[dashboard-data] stage=get_intelligence", {
+    analysisId,
+    found: Boolean(analysis),
+    hasAiResult: Boolean(analysis?.aiResult),
+  });
   if (!analysis?.aiResult) return null;
+  return buildIntelligenceDashboardData(analysis);
+}
+
+/** Build dashboard data from an in-memory / restored analysis record. */
+export function buildIntelligenceDashboardData(
+  analysis: DecisionAnalysis
+): IntelligenceDashboardData | null {
+  if (!analysis.aiResult) return null;
   const ai = hydrateAiResult(
     analysis.aiResult,
     analysis.ingestedDocuments ?? []

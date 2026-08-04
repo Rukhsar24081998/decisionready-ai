@@ -186,7 +186,12 @@ export async function askRecruiterCopilot(
     );
   }
 
-  const analysis = getDecisionAnalysis(input.analysisId);
+  const analysis = await getDecisionAnalysis(input.analysisId);
+  console.info("[copilot] stage=load_analysis", {
+    analysisId: input.analysisId,
+    found: Boolean(analysis),
+    hasAiResult: Boolean(analysis?.aiResult),
+  });
   if (!analysis) {
     throw new AiProviderError(
       "VALIDATION",

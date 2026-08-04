@@ -11,11 +11,11 @@ interface RouteContext {
 
 export async function POST(_request: Request, context: RouteContext) {
   const { analysisId } = await context.params;
-  const analysis = getDecisionAnalysis(analysisId);
+  const analysis = await getDecisionAnalysis(analysisId);
 
   if (!analysis) {
     return NextResponse.json(
-      { error: "Decision Analysis not found" },
+      { error: "Decision Analysis not found", analysisId },
       { status: 404 }
     );
   }
@@ -35,7 +35,7 @@ export async function POST(_request: Request, context: RouteContext) {
 
   try {
     const intelligence = await analyzeCase(analysis);
-    const updated = saveDecisionIntelligence(analysisId, intelligence);
+    const updated = await saveDecisionIntelligence(analysisId, intelligence);
 
     return NextResponse.json({ data: updated });
   } catch {

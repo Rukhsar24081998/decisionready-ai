@@ -11,11 +11,17 @@ interface RouteContext {
 
 export async function GET(_request: Request, context: RouteContext) {
   const { analysisId } = await context.params;
-  const analysis = getDecisionAnalysis(analysisId);
+  const analysis = await getDecisionAnalysis(analysisId);
+
+  console.info("[api/analyses/:id] stage=get", {
+    analysisId,
+    found: Boolean(analysis),
+    hasAiResult: Boolean(analysis?.aiResult),
+  });
 
   if (!analysis) {
     return NextResponse.json(
-      { error: "Decision Analysis not found" },
+      { error: "Decision Analysis not found", analysisId },
       { status: 404 }
     );
   }
@@ -28,11 +34,11 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   try {
     const body = (await request.json()) as UpdateDecisionAnalysisInput;
-    const updated = updateDecisionAnalysis(analysisId, body);
+    const updated = await updateDecisionAnalysis(analysisId, body);
 
     if (!updated) {
       return NextResponse.json(
-        { error: "Decision Analysis not found" },
+        { error: "Decision Analysis not found", analysisId },
         { status: 404 }
       );
     }
