@@ -105,7 +105,7 @@ flowchart LR
 
 ## Figure 1 — Landing Page
 
-![Landing Page](docs/images/landing-page.png)
+![Landing Page](https://raw.githubusercontent.com/Rukhsar24081998/decisionready-ai/main/docs/images/landing-page.png)
 
 **Purpose**  
 Position DecisionReady AI as evidence-backed Decision Intelligence — not an AI hiring recommender.
@@ -126,7 +126,7 @@ Lead with Decision Intelligence and evidence quality, not “AI recommends candi
 
 ## Figure 2 — Candidate Context
 
-![Candidate Context](docs/images/candidate-context.png)
+![Candidate Context](https://raw.githubusercontent.com/Rukhsar24081998/decisionready-ai/main/docs/images/candidate-context.png)
 
 **Purpose**  
 Frame who and what role this evidence bundle is about before analysis.
@@ -147,7 +147,7 @@ Accept one extra step before “interesting” AI. Early tests without context p
 
 ## Figure 3 — Upload Documents
 
-![Upload Documents](docs/images/upload-documents.png)
+![Upload Documents](https://raw.githubusercontent.com/Rukhsar24081998/decisionready-ai/main/docs/images/upload-documents.png)
 
 **Purpose**  
 Collect the raw evidence: JD, resume, interview notes, scorecards, hiring manager notes.
@@ -168,7 +168,7 @@ Upload first, before any AI. Establishes “this tool works from what you give i
 
 ## Figure 4 — AI Processing
 
-![AI Analysis / Processing](docs/images/analysis-progress.png)
+![AI Analysis / Processing](https://raw.githubusercontent.com/Rukhsar24081998/decisionready-ai/main/docs/images/analysis-progress.png)
 
 **Purpose**  
 Convert unstructured documents into structured signals — visibly, not as a black box.
@@ -189,7 +189,7 @@ Prefer an explainable “show your work” step over a fast opaque spinner. In t
 
 ## Figure 5 — Executive Hiring Profile
 
-![Executive Hiring Profile](docs/images/candidate-profile.png)
+![Executive Hiring Profile](https://raw.githubusercontent.com/Rukhsar24081998/decisionready-ai/main/docs/images/candidate-profile.png)
 
 **Purpose**  
 Give a 30-second orientation snapshot derived only from uploaded evidence.
@@ -210,7 +210,7 @@ Keep profile evidence-only. No outside enrichment. Summary supports judgment; it
 
 ## Figure 6 — Decision Intelligence Dashboard
 
-![Decision Intelligence Dashboard](docs/images/decision-dashboard.png)
+![Decision Intelligence Dashboard](https://raw.githubusercontent.com/Rukhsar24081998/decisionready-ai/main/docs/images/decision-dashboard.png)
 
 **Purpose**  
 Answer “are we ready to decide?” with Decision Readiness broken down by competency.
@@ -231,7 +231,7 @@ Name it **Decision Readiness**, not Fit Score. Readiness describes evidence, not
 
 ## Figure 7 — Evidence Intelligence Matrix
 
-![Evidence Intelligence Matrix](docs/images/evidence-matrix.png)
+![Evidence Intelligence Matrix](https://raw.githubusercontent.com/Rukhsar24081998/decisionready-ai/main/docs/images/evidence-matrix.png)
 
 **Purpose**  
 Cross-reference every required competency against every evidence source that speaks to it.
@@ -252,7 +252,7 @@ Keep Matrix separate from Dashboard. Dashboard = quick readiness; Matrix = audit
 
 ## Figure 8 — Evidence Explorer
 
-![Interactive Evidence Explorer](docs/images/evidence-explorer.png)
+![Interactive Evidence Explorer](https://raw.githubusercontent.com/Rukhsar24081998/decisionready-ai/main/docs/images/evidence-explorer.png)
 
 **Purpose**  
 Click any score or flag and see the exact supporting passage.
@@ -273,7 +273,7 @@ Progressive disclosure over dumping all quotes at once. Verification is reactive
 
 ## Figure 9 — AI Hiring Analyst
 
-![AI Hiring Analyst](docs/images/copilot.png)
+![AI Hiring Analyst](https://raw.githubusercontent.com/Rukhsar24081998/decisionready-ai/main/docs/images/ai-hiring-analyst.png)
 
 **Purpose**  
 Answer natural-language questions about the evidence bundle with citations.
@@ -294,7 +294,7 @@ Grounded-only copilot. Prompt- and UI-constrained to refuse recommendation-style
 
 ## Figure 10 — Executive Decision Brief
 
-![Executive Decision Brief](docs/images/decision-brief.png)
+![Executive Decision Brief](https://raw.githubusercontent.com/Rukhsar24081998/decisionready-ai/main/docs/images/decision-brief.png)
 
 **Purpose**  
 Produce one shareable, print-ready artifact for the live debrief.

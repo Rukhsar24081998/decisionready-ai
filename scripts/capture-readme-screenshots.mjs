@@ -149,7 +149,7 @@ try {
     window.scrollBy(0, -72);
   });
   await page.waitForTimeout(400);
-  await shot(page, "copilot.png");
+  await shot(page, "ai-hiring-analyst.png");
 
   // 10. Decision Brief
   await page.goto(`${BASE}/analyses/${AID}/brief`, { waitUntil: "networkidle" });

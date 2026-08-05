@@ -40,7 +40,7 @@ Product walkthrough captures from the MVP. Images live in [`images/`](./images/)
 
 ## AI Hiring Analyst (Recruiter Copilot)
 
-![AI Hiring Analyst](images/copilot.png)
+![AI Hiring Analyst](images/ai-hiring-analyst.png)
 
 ## Executive Decision Brief
 

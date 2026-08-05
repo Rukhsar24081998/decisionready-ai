@@ -254,7 +254,7 @@ try {
     await scrollToText(page, "AI Hiring Analyst");
   }
   await page.waitForTimeout(400);
-  await shot(page, "copilot.png");
+  await shot(page, "ai-hiring-analyst.png");
 
   // ── Figure 10: Decision Brief ─────────────────────────────────────
   await page.goto(`${BASE}/analyses/${analysisId}/brief`, {
