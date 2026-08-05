@@ -1,5 +1,9 @@
 import OpenAI from "openai";
 import type { z } from "zod";
+import {
+  GroqCallError,
+  retryGroqCall,
+} from "@/lib/ai/groq-reliability";
 
 /**
  * Generic document extraction lifecycle.
@@ -139,26 +143,26 @@ async function callGroqJsonObject(
   extractorName: string
 ): Promise<string | null> {
   try {
-    const completion = await client.chat.completions.create({
-      model,
-      temperature: 0.1,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      response_format: { type: "json_object" },
-    });
+    const completion = await retryGroqCall(
+      `${extractorName}:${model}`,
+      async () =>
+        client.chat.completions.create({
+          model,
+          temperature: 0.1,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          response_format: { type: "json_object" },
+        })
+    );
 
     return completion.choices[0]?.message?.content?.trim() || null;
   } catch (error) {
     if (isModelUnavailableError(error)) {
       throw error;
     }
-    console.warn(
-      `[${extractorName}] Groq call failed:`,
-      error instanceof Error ? error.message : error
-    );
-    return null;
+    throw error;
   }
 }
 
@@ -201,7 +205,8 @@ async function generateRawJson(
 
 /**
  * Shared AI extraction lifecycle.
- * Never throws — returns emptyResultFactory() on any failure.
+ * Throws on provider failure after retries so the pipeline can fail gracefully
+ * without saving partial Decision Intelligence.
  */
 export async function extractWithAI<T>(
   options: ExtractWithAIOptions<T>
@@ -212,7 +217,6 @@ export async function extractWithAI<T>(
     systemPrompt,
     userPrompt,
     zodSchema,
-    emptyResultFactory,
     extractorName,
     postProcess,
   } = options;
@@ -222,18 +226,18 @@ export async function extractWithAI<T>(
 
   const text = documentText.trim();
   if (!text) {
-    console.warn(`[${extractorName}] Empty document text`);
-    console.log(`[${extractorName}] Returned empty object`);
-    console.log(`[${extractorName}] Extraction completed`);
-    return emptyResultFactory();
+    throw new GroqCallError(
+      "VALIDATION",
+      `${extractorName} could not run because the parsed document text was empty.`
+    );
   }
 
   const apiKey = getGroqApiKey();
   if (!apiKey) {
-    console.warn(`[${extractorName}] GROQ_API_KEY missing`);
-    console.log(`[${extractorName}] Returned empty object`);
-    console.log(`[${extractorName}] Extraction completed`);
-    return emptyResultFactory();
+    throw new GroqCallError(
+      "MISSING_API_KEY",
+      "GROQ_API_KEY is not configured. Add it to .env.local and restart the server."
+    );
   }
 
   const client = getClient(apiKey);
@@ -275,13 +279,17 @@ CRITICAL: Return one valid JSON object only. No markdown. No prose. Match the re
       console.log(`[${extractorName}] Retry failed`);
     }
   } else if (!parsed && rawText === null) {
-    console.warn(`[${extractorName}] No model response to validate`);
+    throw new GroqCallError(
+      "EMPTY_RESPONSE",
+      `${extractorName} returned no response after retries.`
+    );
   }
 
   if (!parsed) {
-    console.log(`[${extractorName}] Returned empty object`);
-    console.log(`[${extractorName}] Extraction completed`);
-    return emptyResultFactory();
+    throw new GroqCallError(
+      "VALIDATION",
+      `${extractorName} returned invalid structured output after retries.`
+    );
   }
 
   const result = postProcess ? postProcess(parsed) : parsed;

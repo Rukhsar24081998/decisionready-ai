@@ -18,7 +18,6 @@ import { extractScorecard } from "@/lib/ai/extractors/scorecard-extractor";
 import { buildLeanPayloadFromEvidenceGraph } from "@/lib/ai/graph-to-intelligence";
 import { buildAiIntelligenceResult } from "@/lib/ai/hydrate-ai-result";
 import {
-  createEmptyLlmNarrativeSummary,
   llmNarrativeSummarySchema,
   type LlmNarrativeSummary,
 } from "@/lib/ai/llm-summary-schema";
@@ -38,6 +37,10 @@ import {
   type PipelineProgressEvent,
   type PipelineProgressStage,
 } from "@/lib/ai/pipeline-timing";
+import {
+  GroqCallError,
+  retryGroqCall,
+} from "@/lib/ai/groq-reliability";
 
 export interface AnalyzeHiringEvidenceInput {
   context: AnalysisContextInput;
@@ -165,6 +168,9 @@ function isModelUnavailableError(error: unknown): boolean {
 
 function mapProviderError(error: unknown): AiProviderError {
   if (error instanceof AiProviderError) return error;
+  if (error instanceof GroqCallError) {
+    return new AiProviderError(error.code, error.message, { cause: error.cause });
+  }
 
   const status = getErrorStatus(error);
   const message = getErrorMessage(error);
@@ -291,42 +297,47 @@ async function runDocumentExtractors(
   ] = await Promise.all([
     resumeDoc
       ? timedExtract("extract_resume", "Extract Resume", () =>
+          (console.info("[ai/provider] Resume extraction started"),
           extractResume({
             filename: resumeDoc.filename,
             extractedText: resumeDoc.extractedText,
-          })
+          }))
         )
       : Promise.resolve(undefined),
     jdDoc
       ? timedExtract("extract_jd", "Extract JD", () =>
+          (console.info("[ai/provider] JD extraction started"),
           extractJobDescription({
             filename: jdDoc.filename,
             extractedText: jdDoc.extractedText,
-          })
+          }))
         )
       : Promise.resolve(undefined),
     interviewDoc
       ? timedExtract("extract_interview", "Extract Interview Notes", () =>
+          (console.info("[ai/provider] Interview notes extraction started"),
           extractInterview({
             filename: interviewDoc.filename,
             extractedText: interviewDoc.extractedText,
-          })
+          }))
         )
       : Promise.resolve(undefined),
     scorecardDoc
       ? timedExtract("extract_scorecard", "Extract Scorecard", () =>
+          (console.info("[ai/provider] Scorecards extraction started"),
           extractScorecard({
             filename: scorecardDoc.filename,
             extractedText: scorecardDoc.extractedText,
-          })
+          }))
         )
       : Promise.resolve(undefined),
     hmDoc
       ? timedExtract("extract_hm", "Extract Hiring Manager Notes", () =>
+          (console.info("[ai/provider] Hiring Manager Notes extraction started"),
           extractHiringManagerNotes({
             filename: hmDoc.filename,
             extractedText: hmDoc.extractedText,
-          })
+          }))
         )
       : Promise.resolve(undefined),
   ]);
@@ -338,11 +349,13 @@ async function runDocumentExtractors(
     Math.max(0, Math.round(performance.now() - extractStarted))
   );
 
-  if (resume) console.log("Resume extracted");
-  if (jobDescription) console.log("JD extracted");
-  if (interview) console.log("Interview extracted");
-  if (scorecard) console.log("Scorecard extracted");
-  if (hiringManagerNotes) console.log("Hiring Manager extracted");
+  if (resume) console.info("[ai/provider] Resume extraction complete");
+  if (jobDescription) console.info("[ai/provider] JD extraction complete");
+  if (interview) console.info("[ai/provider] Interview notes complete");
+  if (scorecard) console.info("[ai/provider] Scorecards complete");
+  if (hiringManagerNotes) {
+    console.info("[ai/provider] Hiring Manager Notes complete");
+  }
 
   const experience =
     resume && Number.isFinite(resume.candidate.experienceYears)
@@ -390,46 +403,6 @@ function parseNarrativeSummary(rawText: string): LlmNarrativeSummary {
   return validated.data;
 }
 
-function fallbackNarrativeSummary(
-  graph: CandidateEvidenceGraph,
-  context: AnalysisContextInput
-): LlmNarrativeSummary {
-  const empty = createEmptyLlmNarrativeSummary();
-  return {
-    ...empty,
-    executiveSummary: [
-      `Evidence package for ${graph.candidate.name || context.candidateName || "the candidate"}`,
-      `applying to ${graph.candidate.role || context.roleTitle || "the open role"}.`,
-      `${graph.competencies.length} competencies mapped;`,
-      `${graph.missingCompetencies.length} required competencies lack evidence.`,
-      "DecisionReady AI does not recommend hire or reject.",
-    ].join(" "),
-    discussionTopics: graph.missingCompetencies
-      .slice(0, 6)
-      .map((name) => `Clarify concrete evidence for ${name} before debrief.`),
-    decisionBrief: {
-      strengths: graph.competencies
-        .filter((c) => c.sources[0]?.quote)
-        .slice(0, 5)
-        .map((c) => ({
-          competency: c.name,
-          source: c.sources[0].documentName,
-          confidence:
-            c.confidence === "high"
-              ? ("High" as const)
-              : c.confidence === "medium"
-                ? ("Medium" as const)
-                : ("Low" as const),
-          quote: c.sources[0].quote,
-          pageNumber:
-            typeof c.sources[0].pageNumber === "number"
-              ? c.sources[0].pageNumber
-              : null,
-        })),
-    },
-  };
-}
-
 async function generateNarrativeSummary(
   client: OpenAI,
   model: string,
@@ -462,17 +435,21 @@ CRITICAL:
       model,
       promptChars: systemPrompt.length + userPrompt.length,
     });
-    const completion = await client.chat.completions.create({
-      model,
-      temperature: 0.1,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      response_format: {
-        type: "json_object",
-      },
-    });
+    const completion = await retryGroqCall(
+      `narrative:${model}`,
+      async () =>
+        client.chat.completions.create({
+          model,
+          temperature: 0.1,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          response_format: {
+            type: "json_object",
+          },
+        })
+    );
 
     const content = completion.choices[0]?.message?.content?.trim();
     if (!content) {
@@ -494,7 +471,7 @@ CRITICAL:
     });
     console.error("========== GROQ NARRATIVE ERROR ==========");
     console.error(error);
-    throw error;
+    throw mapProviderError(error);
   }
 }
 
@@ -526,10 +503,15 @@ export async function analyzeHiringEvidence(
 
   // Step 1 — extractors (parallel)
   console.info("[ai/provider] stage=extractors_start");
-  const extractions = await runDocumentExtractors(input.documents, {
-    ...input,
-    timer,
-  });
+  let extractions;
+  try {
+    extractions = await runDocumentExtractors(input.documents, {
+      ...input,
+      timer,
+    });
+  } catch (error) {
+    throw mapProviderError(error);
+  }
   console.info("[ai/provider] stage=extractors_ok");
 
   // Step 2 — evidence graph + competency map (sync, CPU-only)
@@ -570,7 +552,6 @@ export async function analyzeHiringEvidence(
 
   // Step 3 — small LLM narrative from graph only
   // (Executive summary + brief strengths share one grounded call — required for identical outputs.)
-  let lastError: unknown;
   let responseText: string | undefined;
   let selectedModel: string | undefined;
 
@@ -590,8 +571,6 @@ export async function analyzeHiringEvidence(
       selectedModel = model;
       break;
     } catch (error) {
-      lastError = error;
-
       if (isModelUnavailableError(error) && index < models.length - 1) {
         const next = models[index + 1];
         console.warn(
@@ -600,21 +579,7 @@ export async function analyzeHiringEvidence(
         continue;
       }
 
-      const mapped = mapProviderError(error);
-      if (
-        mapped.code === "RATE_LIMIT" ||
-        mapped.code === "TIMEOUT" ||
-        mapped.code === "MISSING_API_KEY"
-      ) {
-        throw mapped;
-      }
-
-      // Soft narrative failures fall back to deterministic summary.
-      console.warn(
-        "[groq] Narrative generation failed; using deterministic summary fallback.",
-        mapped.message
-      );
-      break;
+      throw mapProviderError(error);
     }
   }
 
@@ -642,37 +607,25 @@ export async function analyzeHiringEvidence(
         );
         summary = parseNarrativeSummary(retryText);
       } catch (retryError) {
-        console.warn(
-          "[groq] Narrative retry failed; using deterministic summary fallback.",
-          retryError instanceof Error ? retryError.message : retryError
-        );
-        summary = fallbackNarrativeSummary(graph, input.context);
+        throw mapProviderError(retryError);
       }
     }
   } else {
-    if (lastError) {
-      // Missing API key / hard provider errors should still surface.
-      if (
-        lastError instanceof AiProviderError &&
-        lastError.code === "MISSING_API_KEY"
-      ) {
-        throw lastError;
-      }
-    }
-    summary = fallbackNarrativeSummary(graph, input.context);
+    throw new AiProviderError(
+      "PROVIDER",
+      "Decision Intelligence could not be generated because the narrative stage returned no response."
+    );
   }
 
   const narrativeMs = timer.end("Decision Brief / Narrative");
   emitStage(input, "narrative", "done", narrativeMs);
   emitStage(input, "brief", "done", narrativeMs);
 
-  console.log("Executive Summary generated");
-  console.log(
-    `Discussion Topics generated: ${summary.discussionTopics.length}`
-  );
-  console.log(
-    `Decision Brief generated: ${summary.decisionBrief.strengths.length} strengths`
-  );
+  console.info("[ai/provider] Decision Intelligence generated");
+  console.info("[ai/provider] Decision Brief generated", {
+    strengths: summary.decisionBrief.strengths.length,
+    discussionTopics: summary.discussionTopics.length,
+  });
 
   // Step 4 — Decision Engine (graph + narrative → Schema B)
   emitStage(input, "decision_engine", "start");

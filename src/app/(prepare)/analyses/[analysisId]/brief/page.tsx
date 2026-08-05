@@ -1,14 +1,7 @@
-import Link from "next/link";
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { DecisionBriefReport } from "@/components/brief/decision-brief-report";
 import { getDecisionBriefData } from "@/components/brief/brief-data";
-import { IntelligenceRestoreBridge } from "@/components/intelligence/intelligence-restore-bridge";
-import { DotGrid } from "@/components/landing/dot-grid";
-import {
-  landingBtnPrimary,
-  landingContainer,
-} from "@/components/landing/landing-tokens";
-import { cn } from "@/lib/utils";
 
 interface PageProps {
   params: Promise<{ analysisId: string }>;
@@ -33,24 +26,10 @@ export default async function DecisionBriefPage({ params }: PageProps) {
   });
 
   if (!data) {
-    return (
-      <main className="relative overflow-hidden">
-        <DotGrid className="opacity-25" />
-        <div className={cn(landingContainer, "relative py-16")}>
-          <IntelligenceRestoreBridge analysisId={analysisId} />
-          <p className="mt-4 max-w-xl text-[13px] text-[#64748B]">
-            After restore completes, open the Decision Brief again from the
-            dashboard.
-          </p>
-          <Link
-            href={`/analyses/${analysisId}/intelligence`}
-            className={cn(landingBtnPrimary, "mt-4 inline-flex")}
-          >
-            Open Decision Intelligence
-          </Link>
-        </div>
-      </main>
-    );
+    console.info("[brief/page] stage=missing_intelligence_redirect", {
+      analysisId,
+    });
+    redirect(`/analyses/${analysisId}/intelligence`);
   }
 
   return <DecisionBriefReport data={data} />;

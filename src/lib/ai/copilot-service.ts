@@ -15,6 +15,7 @@ import { sanitizeCopilotResponse } from "@/lib/ai/citation-utils";
 import { compressConversationHistory } from "@/lib/ai/conversation-memory";
 import { getDecisionAnalysis } from "@/lib/mock/store";
 import { AiProviderError } from "@/lib/ai/provider";
+import { retryGroqCall } from "@/lib/ai/groq-reliability";
 
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 
@@ -112,25 +113,29 @@ async function callCopilotModel(
 ): Promise<string> {
   console.log(`[copilot] Using Groq model: ${model}`);
 
-  const completion = await client.chat.completions.create({
-    model,
-    temperature: 0.1,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "recruiter_copilot_answer",
-        strict: true,
-        schema: {
-          ...COPILOT_SCHEMA,
-          type: "object",
+  const completion = await retryGroqCall(
+    `copilot:${model}`,
+    async () =>
+      client.chat.completions.create({
+        model,
+        temperature: 0.1,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "recruiter_copilot_answer",
+            strict: true,
+            schema: {
+              ...COPILOT_SCHEMA,
+              type: "object",
+            },
+          },
         },
-      },
-    },
-  });
+      })
+  );
 
   const content = completion.choices[0]?.message?.content?.trim();
   if (!content) {

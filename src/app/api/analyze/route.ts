@@ -296,6 +296,10 @@ export async function POST(request: Request) {
           readinessLabel: aiResult.decisionReadiness?.label,
           competencyCount: aiResult.competencyCoverage?.competencies?.length,
         });
+        console.info("[api/analyze] Decision Intelligence generated", {
+          requestId,
+          readinessLabel: aiResult.decisionReadiness?.label,
+        });
 
         send({
           type: "stage",
@@ -327,6 +331,10 @@ export async function POST(request: Request) {
           requestId,
           analysisId: analysis.id,
           hasAiResult: Boolean(analysis.aiResult),
+        });
+        console.info("[api/analyze] Saved successfully", {
+          requestId,
+          analysisId: analysis.id,
         });
 
         timer.report(`request ${requestId}`);
