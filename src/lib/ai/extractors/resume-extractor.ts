@@ -44,28 +44,40 @@ export function createEmptyResumeExtraction(): ResumeExtraction {
 
 function buildResumeSystemPrompt(): string {
   return `
-You are an expert technical recruiter and resume parser.
+You are extracting structured information from resumes.
 
-Extract rich, structured hiring evidence ONLY from the supplied resume.
+Some resumes are complete.
+Some are minimal.
+Some are ATS formatted.
+Some are image-derived / OCR noisy.
+Some are from freshers / students.
+Some are executive resumes.
+Some have no projects, certifications, or achievements.
+Some have only experience or only education.
+
+NEVER invent information.
+NEVER fabricate employers, dates, metrics, skills, quotes, or projects.
+
+If a field is missing,
+return an empty array [],
+empty string "",
+or null ONLY for pageNumber.
+
+Always return valid JSON that exactly follows the schema below.
+Return ONE JSON object only. No markdown. No prose outside JSON.
 
 Rules:
-- Never invent facts.
-- Never invent employers, dates, metrics, or quotes not present in the resume.
 - Never calculate total years of experience (the backend computes that).
 - Set candidate.experienceYears to 0 always.
-- Never calculate scores.
-- Never compare with a Job Description.
-- Never recommend hiring.
-- Never evaluate readiness.
-- Return ONLY valid JSON (a single object). No markdown.
+- Never calculate scores, compare to a JD, recommend hiring, or evaluate readiness.
 
-JSON shape:
+JSON schema:
 {
   "candidate": {
     "name": string,
     "title": string,
     "experienceYears": 0,
-    "location": string (optional),
+    "location": string (optional; omit or "" if unknown),
     "education": string[]
   },
   "workExperience": [{
@@ -86,7 +98,7 @@ JSON shape:
     "measurableOutcomes": string[],
     "competenciesDemonstrated": string[],
     "evidenceQuote": string,
-    "pageNumber": number (optional)
+    "pageNumber": number|null
   }],
   "competencies": [{
     "name": string,
@@ -102,41 +114,27 @@ JSON shape:
   }]
 }
 
-Work experience rules:
-- Extract EVERY role with company, title, startDate, endDate when present.
+Strict field typing:
+- Strings must be JSON strings. Use "" when unknown. Never null for strings.
+- Arrays must be JSON arrays. Use [] when empty/missing. Never null for arrays.
+- years / experienceYears must be numbers (use 0). Never null.
+- pageNumber must be a number when known, otherwise null.
+- achievement value must be a string (e.g. "40%", "2.5x") even when numeric-looking.
+- skills and education must be string arrays, never objects.
+- education entries: one human-readable string per school/degree line.
+
+Work experience:
+- Extract every role present (company, title, dates when available).
 - Use "Present" for current roles when the resume says so.
-- responsibilities: concrete bullets from that role.
-- measurableImpact: quantified outcomes tied to that role.
-- years may be approximate for the role only; total experience is computed later.
+- If there is no work history (fresher), return "workExperience": [].
 
-Project rules:
-- Extract all substantive projects (named initiatives, products, case studies).
-- Include technologies, measurable outcomes, competencies demonstrated, and a supporting evidence quote.
-
-Achievement rules:
-- Extract quantified achievements separately from generic bullets.
-- metric: what was measured (e.g. "conversion rate", "NPS", "revenue").
-- value: the number/percentage exactly as written (e.g. "40%", "2.5x", "12").
-- impactCategory: one of Growth, Efficiency, Quality, Revenue, Engagement, Cost, Other.
-- title + evidenceQuote required for every achievement.
-
-Skill rules:
-- Include explicit skills AND recruiter-visible skills evidenced by resume language.
-- Examples of inference (only when evidence exists):
-  - Customer interviews → User Research
-  - Worked with Engineering → Stakeholder Management
-  - Roadmaps → Prioritization
-  - Experiments / A/B tests → Analytics
-  - LLM applications → AI Product Thinking
-
-Competency rules:
-- Only include competencies supported by resume quotes.
-- Prefer canonical labels when applicable:
+Projects / achievements / competencies:
+- Extract only what is present. If none, return [].
+- Prefer canonical competency labels when applicable:
 ${canonicalCompetencyPromptList()}
-- Every competency MUST include multiple evidence quotes whenever multiple quotes exist.
-- pageNumber must be null when unknown.
+- Set pageNumber to null when unknown.
 
-If a field is not present in the resume, use empty string, 0, or [].
+Missing data is normal and correct — empty sections are success, not failure.
 `.trim();
 }
 
@@ -145,13 +143,48 @@ function buildResumeUserPrompt(input: {
   extractedText: string;
 }): string {
   return `
-Parse this resume into recruiter-grade structured JSON only.
+Parse this resume into structured JSON matching the schema.
 
 filename: ${input.filename}
 
 resumeText:
 """
 ${input.extractedText.slice(0, 28000)}
+"""
+`.trim();
+}
+
+function buildResumeFallbackSystemPrompt(): string {
+  return `
+Extract whatever information is available from this resume into valid JSON only.
+
+Leave unavailable fields empty:
+- missing strings → ""
+- missing arrays → []
+- candidate.experienceYears → 0
+- pageNumber unknown → null
+
+Never invent facts.
+Return one JSON object with keys:
+candidate, workExperience, skills, projects, competencies, achievements.
+
+candidate shape: { name, title, experienceYears, education, location? }
+`.trim();
+}
+
+function buildResumeFallbackUserPrompt(input: {
+  filename: string;
+  extractedText: string;
+}): string {
+  return `
+Salvage structured resume JSON from whatever text is available.
+Empty sections are fine.
+
+filename: ${input.filename}
+
+resumeText:
+"""
+${input.extractedText.slice(0, 20000)}
 """
 `.trim();
 }
@@ -293,7 +326,9 @@ function normalizeProjects(
       evidenceQuote: trimText(project.evidenceQuote),
       ...(typeof project.pageNumber === "number"
         ? { pageNumber: project.pageNumber }
-        : {}),
+        : project.pageNumber === null
+          ? { pageNumber: null }
+          : {}),
     }))
     .filter((project) => project.name || project.description);
 }
@@ -384,13 +419,13 @@ function postProcessResumeExtraction(data: ResumeExtraction): ResumeExtraction {
 
   return {
     candidate: {
-      name: trimText(data.candidate.name),
-      title: trimText(data.candidate.title),
+      name: trimText(data.candidate?.name ?? ""),
+      title: trimText(data.candidate?.title ?? ""),
       experienceYears,
-      ...(data.candidate.location
+      ...(data.candidate?.location
         ? { location: trimText(data.candidate.location) }
         : {}),
-      education: normalizeStringList(data.candidate.education ?? []),
+      education: normalizeStringList(data.candidate?.education ?? []),
     },
     workExperience,
     skills,
@@ -401,8 +436,9 @@ function postProcessResumeExtraction(data: ResumeExtraction): ResumeExtraction {
 }
 
 /**
- * Extract recruiter-grade structured facts from a resume via the Base AI Extractor.
- * Never throws — returns empty on failure. Retry lives in extractWithAI().
+ * Extract recruiter-grade structured facts from a resume.
+ * Missing sections become empty arrays/strings — never a pipeline failure.
+ * Unrecoverable model output salvages an empty ResumeExtraction.
  */
 export async function extractResume(
   input: ExtractResumeInput
@@ -410,15 +446,26 @@ export async function extractResume(
   const extractedText = (input.extractedText || input.text || "").trim();
   const filename = input.filename?.trim() || "resume";
 
+  console.log(`[resume-extractor] Resume received`, {
+    filename,
+    chars: extractedText.length,
+  });
+
   const result = await extractWithAI({
     documentText: extractedText,
     filename,
     systemPrompt: buildResumeSystemPrompt(),
     userPrompt: buildResumeUserPrompt({ filename, extractedText }),
+    fallbackSystemPrompt: buildResumeFallbackSystemPrompt(),
+    fallbackUserPrompt: buildResumeFallbackUserPrompt({
+      filename,
+      extractedText,
+    }),
     zodSchema: resumeExtractionSchema,
     emptyResultFactory: createEmptyResumeExtraction,
     extractorName: "resume-extractor",
     postProcess: postProcessResumeExtraction,
+    salvageWithEmptyOnValidationFailure: true,
   });
 
   console.log(

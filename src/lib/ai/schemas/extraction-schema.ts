@@ -1,6 +1,10 @@
 /**
  * Document Understanding — extraction output contracts + Zod.
  * Qualitative facts only. No scores, confidence, or hire/reject signals.
+ *
+ * Resume schema is intentionally resilient: missing sections become empty
+ * defaults. Nulls and common LLM shape mistakes are coerced — never treated
+ * as "resume incomplete" failures.
  */
 
 import { z } from "zod";
@@ -24,7 +28,7 @@ export interface ResumeProjectEvidence {
   measurableOutcomes: string[];
   competenciesDemonstrated: string[];
   evidenceQuote: string;
-  pageNumber?: number;
+  pageNumber?: number | null;
 }
 
 export interface ResumeCompetencyEvidence {
@@ -65,65 +69,247 @@ export interface ResumeExtraction {
   achievements: ResumeAchievement[];
 }
 
+/** Coerce null/undefined → default string. Never fail on missing values. */
+const resilientString = z.preprocess((value) => {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (typeof value === "string") return value;
+  return "";
+}, z.string().default(""));
+
+/** Coerce messy year values ("2 years", null, "") → finite number. */
+const resilientNumber = z.preprocess((value) => {
+  if (value === null || value === undefined || value === "") return 0;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (typeof value === "string") {
+    const match = value.replace(/,/g, "").match(/-?\d+(\.\d+)?/);
+    if (!match) return 0;
+    const n = Number(match[0]);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}, z.number().default(0));
+
+/** pageNumber: number | null | omit — strings coerced when numeric. */
+const resilientPageNumber = z.preprocess((value) => {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "string") {
+    const n = Number(value.trim());
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}, z.number().nullable().optional());
+
+function itemToString(item: unknown): string {
+  if (item === null || item === undefined) return "";
+  if (typeof item === "string") return item;
+  if (typeof item === "number" || typeof item === "boolean") return String(item);
+  if (typeof item === "object") {
+    const record = item as Record<string, unknown>;
+    const parts = [
+      record.degree,
+      record.school,
+      record.institution,
+      record.university,
+      record.name,
+      record.title,
+      record.skill,
+      record.label,
+      record.value,
+    ]
+      .filter((part) => typeof part === "string" && part.trim())
+      .map((part) => String(part).trim());
+    if (parts.length > 0) return parts.join(", ");
+  }
+  return "";
+}
+
+/** Arrays of strings — accepts null, objects-in-array, scalar → []. */
+const resilientStringArray = z.preprocess((value) => {
+  if (value === null || value === undefined) return [];
+  if (typeof value === "string") {
+    return value
+      .split(/[,;\n|/]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  if (!Array.isArray(value)) return [];
+  return value.map(itemToString).filter((s) => s.trim().length > 0);
+}, z.array(z.string()).default([]));
+
 const resumeWorkExperienceSchema = z.object({
-  company: z.string().default(""),
-  title: z.string().default(""),
-  startDate: z.string().default(""),
-  endDate: z.string().default(""),
-  duration: z.string().default(""),
-  years: z.coerce.number().default(0),
-  responsibilities: z.array(z.string()).default([]),
-  measurableImpact: z.array(z.string()).default([]),
+  company: resilientString,
+  title: resilientString,
+  startDate: resilientString,
+  endDate: resilientString,
+  duration: resilientString,
+  years: resilientNumber,
+  responsibilities: resilientStringArray,
+  measurableImpact: resilientStringArray,
 });
 
 const resumeProjectSchema = z.object({
-  name: z.string().default(""),
-  description: z.string().default(""),
-  technologies: z.array(z.string()).default([]),
-  measurableOutcomes: z.array(z.string()).default([]),
-  competenciesDemonstrated: z.array(z.string()).default([]),
-  evidenceQuote: z.string().default(""),
-  pageNumber: z.number().optional(),
+  name: resilientString,
+  description: resilientString,
+  technologies: resilientStringArray,
+  measurableOutcomes: resilientStringArray,
+  competenciesDemonstrated: resilientStringArray,
+  evidenceQuote: resilientString,
+  pageNumber: resilientPageNumber,
 });
 
 const resumeAchievementSchema = z.object({
-  title: z.string().default(""),
-  evidenceQuote: z.string().default(""),
-  metric: z.string().default(""),
-  value: z
-    .union([z.string(), z.number()])
-    .transform((v) => String(v))
-    .default(""),
-  impactCategory: z.string().default(""),
+  title: resilientString,
+  evidenceQuote: resilientString,
+  metric: resilientString,
+  value: z.preprocess((value) => {
+    if (value === null || value === undefined) return "";
+    return String(value);
+  }, z.string().default("")),
+  impactCategory: resilientString,
 });
 
-export const resumeExtractionSchema = z.object({
-  candidate: z.object({
-    name: z.string().default(""),
-    title: z.string().default(""),
-    experienceYears: z.coerce.number().default(0),
-    location: z.string().optional(),
-    education: z.array(z.string()).default([]),
-  }),
-  workExperience: z.array(resumeWorkExperienceSchema).default([]),
-  skills: z.array(z.string()).default([]),
-  projects: z.array(resumeProjectSchema).default([]),
-  competencies: z.array(
-    z.object({
-      name: z.string().default(""),
-      reason: z.string().default(""),
-      evidence: z
-        .array(
-          z.object({
-            quote: z.string().default(""),
-            pageNumber: z.number().nullable().optional(),
-          })
-        )
-        .default([]),
-    })
-  ).default([]),
-  achievements: z.array(resumeAchievementSchema).default([]),
+const resumeCompetencyEvidenceSchema = z.object({
+  quote: resilientString,
+  pageNumber: resilientPageNumber,
 });
+
+const resumeCompetencySchema = z.object({
+  name: resilientString,
+  reason: resilientString,
+  evidence: z.preprocess((value) => {
+    if (value === null || value === undefined) return [];
+    if (!Array.isArray(value)) return [];
+    return value;
+  }, z.array(resumeCompetencyEvidenceSchema).default([])),
+});
+
+const emptyCandidate = {
+  name: "",
+  title: "",
+  experienceYears: 0,
+  education: [] as string[],
+};
+
+const resumeCandidateSchema = z.object({
+  name: resilientString,
+  title: resilientString,
+  experienceYears: resilientNumber,
+  location: z.preprocess((value) => {
+    if (value === null || value === undefined || value === "") return undefined;
+    if (typeof value === "string") return value;
+    return undefined;
+  }, z.string().optional()),
+  education: resilientStringArray,
+});
+
+/**
+ * Pre-normalize alternate key names models sometimes emit
+ * (experience vs workExperience, etc.) before field validation.
+ */
+function normalizeResumeShape(input: unknown): unknown {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return {
+      candidate: emptyCandidate,
+      workExperience: [],
+      skills: [],
+      projects: [],
+      competencies: [],
+      achievements: [],
+    };
+  }
+
+  const record = { ...(input as Record<string, unknown>) };
+
+  if (!record.workExperience && Array.isArray(record.experience)) {
+    record.workExperience = record.experience;
+  }
+  if (!record.workExperience && Array.isArray(record.work_experience)) {
+    record.workExperience = record.work_experience;
+  }
+  if (!record.skills && Array.isArray(record.skillList)) {
+    record.skills = record.skillList;
+  }
+  if (!record.achievements && Array.isArray(record.accomplishments)) {
+    record.achievements = record.accomplishments;
+  }
+  if (!record.candidate || typeof record.candidate !== "object") {
+    record.candidate = {
+      name: typeof record.name === "string" ? record.name : "",
+      title:
+        typeof record.title === "string"
+          ? record.title
+          : typeof record.role === "string"
+            ? record.role
+            : "",
+      experienceYears: 0,
+      education: Array.isArray(record.education) ? record.education : [],
+      ...(typeof record.location === "string"
+        ? { location: record.location }
+        : {}),
+    };
+  }
+
+  // Null top-level arrays → missing (defaults apply)
+  for (const key of [
+    "workExperience",
+    "skills",
+    "projects",
+    "competencies",
+    "achievements",
+  ] as const) {
+    if (record[key] === null) delete record[key];
+  }
+
+  return record;
+}
+
+export const resumeExtractionSchema = z.preprocess(
+  normalizeResumeShape,
+  z.object({
+    candidate: resumeCandidateSchema.default(emptyCandidate),
+    workExperience: z
+      .preprocess((value) => {
+        if (value === null || value === undefined) return [];
+        if (!Array.isArray(value)) return [];
+        return value.filter(
+          (item) => item && typeof item === "object" && !Array.isArray(item)
+        );
+      }, z.array(resumeWorkExperienceSchema).default([])),
+    skills: resilientStringArray,
+    projects: z
+      .preprocess((value) => {
+        if (value === null || value === undefined) return [];
+        if (!Array.isArray(value)) return [];
+        return value.filter(
+          (item) => item && typeof item === "object" && !Array.isArray(item)
+        );
+      }, z.array(resumeProjectSchema).default([])),
+    competencies: z
+      .preprocess((value) => {
+        if (value === null || value === undefined) return [];
+        if (!Array.isArray(value)) return [];
+        return value.filter(
+          (item) => item && typeof item === "object" && !Array.isArray(item)
+        );
+      }, z.array(resumeCompetencySchema).default([])),
+    achievements: z
+      .preprocess((value) => {
+        if (value === null || value === undefined) return [];
+        if (!Array.isArray(value)) return [];
+        return value.filter(
+          (item) => item && typeof item === "object" && !Array.isArray(item)
+        );
+      }, z.array(resumeAchievementSchema).default([])),
+  })
+);
 
 export interface JobDescriptionExtraction {
   role: string;

@@ -4,6 +4,10 @@ import {
   GroqCallError,
   retryGroqCall,
 } from "@/lib/ai/groq-reliability";
+import {
+  extractJsonPayload,
+  parseJsonLenient,
+} from "@/lib/ai/extractors/json-repair";
 
 /**
  * Generic document extraction lifecycle.
@@ -31,6 +35,18 @@ export interface ExtractWithAIOptions<T> {
   extractorName: string;
   /** Optional transform after successful Zod parse (domain-specific cleanup). */
   postProcess?: (data: T) => T;
+  /**
+   * Lightweight salvage prompt when primary + strict retry both fail validation.
+   * Should still target the same Zod schema.
+   */
+  fallbackSystemPrompt?: string;
+  fallbackUserPrompt?: string;
+  /**
+   * When true (default), return emptyResultFactory() after all parse attempts
+   * fail instead of throwing VALIDATION — enables graceful degradation.
+   * API / empty-response failures still throw.
+   */
+  salvageWithEmptyOnValidationFailure?: boolean;
 }
 
 function getGroqApiKey(): string | null {
@@ -108,16 +124,47 @@ export function normalizeExtractionJsonRoot(parsed: unknown): unknown {
   return parsed;
 }
 
+export { extractJsonPayload };
+
+function truncateForLog(text: string, maxChars = 4000): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}\n… [truncated ${text.length - maxChars} chars]`;
+}
+
+function summarizeMissingFields(data: unknown): string[] {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return [];
+  const missing: string[] = [];
+  for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+    if (value === null || value === undefined) {
+      missing.push(key);
+    } else if (typeof value === "string" && value.trim() === "") {
+      missing.push(key);
+    } else if (Array.isArray(value) && value.length === 0) {
+      missing.push(key);
+    }
+  }
+  return missing;
+}
+
 function parseAndValidate<T>(
   rawText: string,
   zodSchema: z.ZodType<T>,
   extractorName: string
 ): T | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawText);
-  } catch {
-    console.warn(`[${extractorName}] Validation failed: invalid JSON`);
+  console.log(
+    `[${extractorName}] Raw model response (${rawText.length} chars):\n${truncateForLog(rawText)}`
+  );
+
+  const { cleaned, parsed, error } = parseJsonLenient(rawText);
+  console.log(
+    `[${extractorName}] Cleaned JSON (${cleaned.length} chars):\n${truncateForLog(cleaned)}`
+  );
+
+  if (parsed === null) {
+    console.warn(`[${extractorName}] JSON parse failed after repair`, {
+      error,
+      rawPreview: truncateForLog(rawText, 800),
+    });
     return null;
   }
 
@@ -125,12 +172,27 @@ function parseAndValidate<T>(
   const validated = zodSchema.safeParse(normalized);
 
   if (!validated.success) {
-    console.warn(
-      `[${extractorName}] Validation failed:`,
-      validated.error.issues[0]?.message ?? validated.error.message
-    );
+    console.warn(`[${extractorName}] Validation errors`, {
+      issueCount: validated.error.issues.length,
+      issues: validated.error.issues,
+      formatted: validated.error.format(),
+      message: validated.error.message,
+    });
     return null;
   }
+
+  const missing = summarizeMissingFields(validated.data);
+  if (missing.length > 0) {
+    console.log(
+      `[${extractorName}] Missing/empty fields (ok): ${missing.join(", ")}`
+    );
+  }
+
+  console.log(
+    `[${extractorName}] Final parsed object:\n${truncateForLog(
+      JSON.stringify(validated.data, null, 2)
+    )}`
+  );
 
   return validated.data;
 }
@@ -142,28 +204,30 @@ async function callGroqJsonObject(
   userPrompt: string,
   extractorName: string
 ): Promise<string | null> {
-  try {
-    const completion = await retryGroqCall(
-      `${extractorName}:${model}`,
-      async () =>
-        client.chat.completions.create({
-          model,
-          temperature: 0.1,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-          response_format: { type: "json_object" },
-        })
-    );
+  console.log(`[${extractorName}] Prompt sent`, {
+    model,
+    systemChars: systemPrompt.length,
+    userChars: userPrompt.length,
+    totalChars: systemPrompt.length + userPrompt.length,
+  });
 
-    return completion.choices[0]?.message?.content?.trim() || null;
-  } catch (error) {
-    if (isModelUnavailableError(error)) {
-      throw error;
-    }
-    throw error;
-  }
+  const completion = await retryGroqCall(
+    `${extractorName}:${model}`,
+    async () =>
+      client.chat.completions.create({
+        model,
+        temperature: 0.1,
+        // Keep under Groq free-tier TPM while reducing truncation vs default ~3072.
+        max_tokens: 4096,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        response_format: { type: "json_object" },
+      })
+  );
+
+  return completion.choices[0]?.message?.content?.trim() || null;
 }
 
 async function generateRawJson(
@@ -197,6 +261,10 @@ async function generateRawJson(
         `[${extractorName}] Model error:`,
         error instanceof Error ? error.message : error
       );
+      // Propagate hard provider failures (rate limit / timeout) after retries
+      if (error instanceof GroqCallError) {
+        throw error;
+      }
       return null;
     }
   }
@@ -205,8 +273,9 @@ async function generateRawJson(
 
 /**
  * Shared AI extraction lifecycle.
- * Throws on provider failure after retries so the pipeline can fail gracefully
- * without saving partial Decision Intelligence.
+ * Throws on provider / empty-response failure after retries.
+ * On schema mismatch after repair + optional fallback, salvages emptyResultFactory
+ * when salvageWithEmptyOnValidationFailure is enabled (default true).
  */
 export async function extractWithAI<T>(
   options: ExtractWithAIOptions<T>
@@ -217,12 +286,19 @@ export async function extractWithAI<T>(
     systemPrompt,
     userPrompt,
     zodSchema,
+    emptyResultFactory,
     extractorName,
     postProcess,
+    fallbackSystemPrompt,
+    fallbackUserPrompt,
+    salvageWithEmptyOnValidationFailure = true,
   } = options;
 
   console.log(`[${extractorName}] Extraction started`);
   console.log(`[${extractorName}] filename=${filename}`);
+  console.log(
+    `[${extractorName}] Document received (${documentText.trim().length} chars)`
+  );
 
   const text = documentText.trim();
   if (!text) {
@@ -256,10 +332,12 @@ export async function extractWithAI<T>(
     : null;
 
   if (!parsed && rawText !== null) {
-    console.log(`[${extractorName}] Retry started`);
+    console.log(`[${extractorName}] Strict retry started`);
     const stricterSystem = `${systemPrompt}
 
-CRITICAL: Return one valid JSON object only. No markdown. No prose. Match the required schema exactly. Never invent facts or quotes.`;
+CRITICAL: Return one valid JSON object only. No markdown. No prose. Match the required schema exactly.
+Missing sections must be empty arrays [] or empty strings "" — never null for strings/arrays.
+Never invent facts or quotes.`;
 
     const retryRaw = await generateRawJson(
       client,
@@ -274,9 +352,9 @@ CRITICAL: Return one valid JSON object only. No markdown. No prose. Match the re
       : null;
 
     if (parsed) {
-      console.log(`[${extractorName}] Retry succeeded`);
+      console.log(`[${extractorName}] Strict retry succeeded`);
     } else {
-      console.log(`[${extractorName}] Retry failed`);
+      console.log(`[${extractorName}] Strict retry failed`);
     }
   } else if (!parsed && rawText === null) {
     throw new GroqCallError(
@@ -285,7 +363,36 @@ CRITICAL: Return one valid JSON object only. No markdown. No prose. Match the re
     );
   }
 
+  if (!parsed && fallbackSystemPrompt && fallbackUserPrompt) {
+    console.log(`[${extractorName}] Fallback extraction triggered`);
+    const fallbackRaw = await generateRawJson(
+      client,
+      models,
+      fallbackSystemPrompt,
+      fallbackUserPrompt,
+      extractorName
+    );
+    parsed = fallbackRaw
+      ? parseAndValidate(fallbackRaw, zodSchema, extractorName)
+      : null;
+    if (parsed) {
+      console.log(`[${extractorName}] Fallback extraction succeeded`);
+    } else {
+      console.log(`[${extractorName}] Fallback extraction failed`);
+    }
+  }
+
   if (!parsed) {
+    if (salvageWithEmptyOnValidationFailure) {
+      console.warn(
+        `[${extractorName}] Salvaging empty structured result after unrecoverable validation failure`
+      );
+      const empty = emptyResultFactory();
+      const result = postProcess ? postProcess(empty) : empty;
+      console.log(`[${extractorName}] Extraction completed (empty salvage)`);
+      return result;
+    }
+
     throw new GroqCallError(
       "VALIDATION",
       `${extractorName} returned invalid structured output after retries.`
