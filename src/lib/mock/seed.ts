@@ -215,7 +215,36 @@ export const seedDecisionAnalyses: DecisionAnalysis[] = [
       generatedAt: now,
     },
     aiResult: null,
-    ingestedDocuments: [],
+    ingestedDocuments: [
+      {
+        id: "doc_da_ready_001_jd",
+        filename: "Job_Description.txt",
+        documentType: "Job Description",
+        extractedText:
+          "We are hiring a Senior Backend Engineer to design and scale APIs, own service reliability, and mentor engineers. Required: distributed systems, system design, TypeScript/Node, ownership, and clear communication.",
+      },
+      {
+        id: "doc_da_ready_001_resume",
+        filename: "Resume_Priya_Sharma.txt",
+        documentType: "Resume",
+        extractedText:
+          "Priya Sharma\nBackend engineer with 7 years experience in Node.js, TypeScript, PostgreSQL, and distributed systems. Led API platform work at two SaaS companies.",
+      },
+      {
+        id: "doc_da_ready_001_notes",
+        filename: "Interview_Notes.txt",
+        documentType: "Interview Notes",
+        extractedText:
+          "Alex Kim (System Design - Architecture): Strong tradeoff discussion on caching and consistency. Clear ownership of prior platform migrations.\n\nJordan Lee (Coding - TypeScript): Solid TypeScript problem-solving. Explained edge cases well. Minor gaps in test strategy depth.\n\nSam Ortiz (Behavioral - Ownership): Concrete examples of mentoring and cross-team delivery. No major concerns.",
+      },
+      {
+        id: "doc_da_ready_001_scorecards",
+        filename: "Scorecards.txt",
+        documentType: "Scorecards",
+        extractedText:
+          "Alex Kim Scorecard: System Design: 4/5, Scalability: 4/5\n\nJordan Lee Scorecard: Coding: 4/5, Communication: 3/5\n\nSam Ortiz Scorecard: Ownership: 4/5, Collaboration: 4/5",
+      },
+    ],
     createdAt: now,
     updatedAt: now,
     evidenceUpdatedAt: now,
@@ -374,7 +403,35 @@ export const seedDecisionAnalyses: DecisionAnalysis[] = [
       generatedAt: now,
     },
     aiResult: null,
-    ingestedDocuments: [],
+    ingestedDocuments: [
+      {
+        id: "doc_da_partial_002_jd",
+        filename: "Job_Description.txt",
+        documentType: "Job Description",
+        extractedText:
+          "Product Designer for B2B workflows. Required: interaction design, design systems, stakeholder communication, and research synthesis.",
+      },
+      {
+        id: "doc_da_partial_002_resume",
+        filename: "Resume_Marcus_Chen.txt",
+        documentType: "Resume",
+        extractedText:
+          "Marcus Chen\nProduct designer with 5 years in SaaS. Portfolio includes complex settings and onboarding flows.",
+      },
+      {
+        id: "doc_da_partial_002_notes",
+        filename: "Interview_Notes.txt",
+        documentType: "Interview Notes",
+        extractedText:
+          "Riley Adams (Portfolio - Interaction Design): Strong interaction work on workflow density. Limited discussion of research methods.",
+      },
+      {
+        id: "doc_da_partial_002_scorecards",
+        filename: "Scorecards.txt",
+        documentType: "Scorecards",
+        extractedText: "Riley Adams Scorecard: Interaction Design: 4/5",
+      },
+    ],
     createdAt: now,
     updatedAt: now,
     evidenceUpdatedAt: now,

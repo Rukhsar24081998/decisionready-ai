@@ -2,6 +2,7 @@ import type { AiIntelligenceResult } from "@/ai/output-schema";
 import { hydrateAiResult } from "@/lib/ai/hydrate-ai-result";
 import { formatPercentage, normalizeConfidence } from "@/lib/ai/score-utils";
 import type { DecisionAnalysis } from "@/lib/types";
+import { convertLegacyIntelligence } from "@/lib/ai/legacy-adapter";
 import {
   buildCandidatePresentationProfile,
   getResumeTextFromAnalysis,
@@ -507,9 +508,13 @@ function mapFromAiResult(
 export function buildIntelligenceDashboardData(
   analysis: DecisionAnalysis
 ): IntelligenceDashboardData | null {
-  if (!analysis.aiResult) return null;
+  let aiResult = analysis.aiResult;
+  if (!aiResult && analysis.intelligence) {
+    aiResult = convertLegacyIntelligence(analysis);
+  }
+  if (!aiResult) return null;
   const ai = hydrateAiResult(
-    analysis.aiResult,
+    aiResult,
     analysis.ingestedDocuments ?? []
   );
   return mapFromAiResult(analysis.id, ai, analysis);

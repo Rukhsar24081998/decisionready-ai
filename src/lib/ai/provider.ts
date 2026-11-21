@@ -91,7 +91,9 @@ const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 
 const DEFAULT_MODEL_FALLBACKS = [
   "openai/gpt-oss-120b",
+  "llama-3.3-70b-versatile",
   "qwen/qwen3.6-27b",
+  "llama-3.1-8b-instant",
 ] as const;
 
 function getGroqApiKey(): string {

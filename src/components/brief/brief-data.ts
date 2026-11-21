@@ -5,6 +5,7 @@ import { hydrateAiResult } from "@/lib/ai/hydrate-ai-result";
 import { formatPercentage, normalizeConfidence } from "@/lib/ai/score-utils";
 import { getDecisionAnalysis } from "@/lib/mock/store";
 import type { DecisionAnalysis } from "@/lib/types";
+import { convertLegacyIntelligence } from "@/lib/ai/legacy-adapter";
 import { buildCandidatePresentationProfile, getResumeTextFromAnalysis } from "@/components/intelligence/candidate-profile";
 import {
   humanDocumentLabel,
@@ -442,7 +443,11 @@ export async function getDecisionBriefData(
     found: Boolean(analysis),
     hasAiResult: Boolean(analysis?.aiResult),
   });
-  if (!analysis?.aiResult) return null;
+  if (!analysis) return null;
+  if (!analysis.aiResult && analysis.intelligence) {
+    analysis.aiResult = convertLegacyIntelligence(analysis);
+  }
+  if (!analysis.aiResult) return null;
   const ai = hydrateAiResult(
     analysis.aiResult,
     analysis.ingestedDocuments ?? []

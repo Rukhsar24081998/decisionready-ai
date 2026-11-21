@@ -2,6 +2,7 @@ import "server-only";
 
 import { buildIntelligenceDashboardData } from "@/components/intelligence/dashboard-data";
 import { getDecisionAnalysis } from "@/lib/mock/store";
+import { convertLegacyIntelligence } from "@/lib/ai/legacy-adapter";
 
 /**
  * Server-only loader for Decision Intelligence dashboard data.
@@ -16,6 +17,10 @@ export async function getIntelligenceDashboardData(
     found: Boolean(analysis),
     hasAiResult: Boolean(analysis?.aiResult),
   });
-  if (!analysis?.aiResult) return null;
+  if (!analysis) return null;
+  if (!analysis.aiResult && analysis.intelligence) {
+    analysis.aiResult = convertLegacyIntelligence(analysis);
+  }
+  if (!analysis.aiResult) return null;
   return buildIntelligenceDashboardData(analysis);
 }
