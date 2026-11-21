@@ -1,5 +1,4 @@
 import {
-  DISCLAIMER,
   type AiIntelligenceLlmPayload,
   type AiIntelligenceResult,
 } from "@/ai/output-schema";
@@ -101,7 +100,11 @@ export function convertLegacyIntelligence(
     strengths: i.competenciesTouched.map((c) => `Demonstrated strength in ${c}`),
     concerns: [],
     consensus: "Aligned",
-    supportingEvidence: [i.notesSummary || ""].filter(Boolean),
+    supportingEvidence: [
+      i.focus
+        ? `${i.interviewerName} evaluated ${i.round} focusing on ${i.focus}.`
+        : `${i.interviewerName} completed ${i.round}.`,
+    ],
   }));
 
   const evidenceMapping = (intel?.competencies || []).flatMap((c) =>
@@ -145,19 +148,24 @@ export function convertLegacyIntelligence(
   const briefInterviewers = (intel?.interviewerContributions || []).map((i) => ({
     name: i.interviewerName,
     round: i.round || "Panel",
-    positives: [i.focus || "Evaluation"],
+    positives: i.competenciesTouched.map((c) => `Evaluated ${c}`),
     concerns: [],
-    consensus: "Positive",
-    confidence: 88,
-    evidenceQuotes: [],
+    consensus: "Aligned",
+    supportingEvidence: [
+      i.focus
+        ? `${i.interviewerName} evaluated ${i.round} focusing on ${i.focus}.`
+        : `${i.interviewerName} completed ${i.round}.`,
+    ],
   }));
+
+  const extraAnalysis = analysis as unknown as Record<string, unknown>;
 
   const lean: AiIntelligenceLlmPayload = {
     candidate: {
       name: analysis.candidateName,
       role: analysis.roleTitle,
-      department: (analysis as Record<string, unknown>).department
-        ? String((analysis as Record<string, unknown>).department)
+      department: extraAnalysis.department
+        ? String(extraAnalysis.department)
         : "Engineering",
       experience: "5+ years",
     },
@@ -178,15 +186,13 @@ export function convertLegacyIntelligence(
     decisionBrief: {
       strengths: briefStrengths,
       interviewers: briefInterviewers,
+      skills: (intel?.competencies || []).map((c) => c.name),
       documentsAnalyzed: [
         "Job Description",
         "Resume",
         "Interview Notes",
         "Scorecards",
       ],
-      processingTime: "1.1s",
-      version: "2.0.0",
-      disclaimer: DISCLAIMER,
     },
   };
 
